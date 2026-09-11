@@ -63,7 +63,7 @@ tr:nth-child(even) td{background:#FAFBFC}
   <label>1 · Owned trucks (KPI tracker .xlsx)</label><input type="file" id="fOwned" accept=".xlsx">
   <label>2 · Vendor extract (SAP .xlsx)</label><input type="file" id="fVendor" accept=".xlsx">
   <button class="runbtn" onclick="runAll()">▶ RUN</button>
-  <button class="badge" style="cursor:pointer" onclick="syncSetup()">⚙ Sync setup</button><span id="syncBadge" class="badge">sync: off</span>
+  <button class="badge" style="cursor:pointer" onclick="syncSetup()">⚙ Sync setup</button><span id="syncBadge" class="badge">sync: off</span><button class="badge" style="cursor:pointer" onclick="syncTest()">🔧 Test sync</button></div><div class="uploadbar" style="border-top:0;padding:4px 26px"><span id="syncDiag" class="hint"></span>
   <span class="badge">Data stays in your browser — nothing is uploaded anywhere</span>
 </div>
 <nav>
@@ -280,6 +280,24 @@ async function encJSON(obj){const iv=crypto.getRandomValues(new Uint8Array(12));
 async function decJSON(d){const u=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));const k=await dKey(PW);
  const pt=await crypto.subtle.decrypt({name:"AES-GCM",iv:u(d.iv)},k,u(d.ct));return JSON.parse(new TextDecoder().decode(pt));}
 // ===== SHARED DATA SYNC (GitHub repo as free backend) =====
+
+async function syncTest(){
+ const o=document.getElementById("syncDiag");o.textContent="testing...";
+ const c=syncCfg();
+ if(!c||!c.repo){o.textContent="✗ No sync config saved — Safari may be in Private mode or storage blocked. Redo ⚙ setup in a normal (non-private) tab.";return}
+ if(!c.token){o.textContent="✗ Repo saved ("+c.repo+") but NO token stored — redo ⚙ setup and paste the token in the SECOND prompt.";return}
+ let msg="repo: "+c.repo+" · token: •••"+c.token.slice(-4)+" — ";
+ try{
+  const r=await fetch("https://api.github.com/repos/"+c.repo,{headers:{Authorization:"Bearer "+c.token,Accept:"application/vnd.github+json"}});
+  if(r.status==200){msg+="✓ token can see the repo. ";
+   const d=await fetch("https://api.github.com/repos/"+c.repo+"/contents/data.json",{headers:{Authorization:"Bearer "+c.token}});
+   msg+=d.status==200?"✓ data.json exists — sharing WORKS.":"(data.json not created yet — press RUN with files loaded)";}
+  else if(r.status==404)msg+="✗ 404: token cannot see '"+c.repo+"' — repo name mismatch OR token was scoped to a different repo. Fix name or token scope.";
+  else if(r.status==401)msg+="✗ 401: token invalid/expired — regenerate and re-enter in ⚙ setup.";
+  else msg+="✗ HTTP "+r.status;
+ }catch(e){msg+="✗ network error: "+e.message}
+ o.textContent=msg;}
+
 function syncCfg(){try{return JSON.parse(localStorage.getItem("jh_sync")||"null")}catch(e){return null}}
 function syncSetup(){
  const c=syncCfg()||{};
@@ -299,7 +317,8 @@ async function pushData(){
  let sha;try{const g=await fetch(url,{headers:hd});if(g.ok)sha=(await g.json()).sha}catch(e){}
  const res=await fetch(url,{method:"PUT",headers:hd,body:JSON.stringify({message:"data update "+new Date().toISOString(),content:b64,...(sha?{sha}:{})})});
  const ok=res.ok;const b=document.getElementById("statusBadge");
- if(ok){b.textContent+=" · shared ✓"}else{alert("Sync push failed ("+res.status+") — check token/repo")}}
+ const o=document.getElementById("syncDiag");
+ if(ok){b.textContent+=" · shared ✓";o.textContent="✓ pushed to "+c.repo+" at "+new Date().toLocaleTimeString()}else{o.textContent="✗ push failed HTTP "+res.status+" — press 🔧 Test sync for diagnosis"}}
 async function loadRemote(){
  const c=syncCfg();updSyncBadge();
  let url=null;
