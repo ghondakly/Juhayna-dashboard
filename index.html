@@ -283,12 +283,12 @@ async function decJSON(d){const u=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0))
 function syncCfg(){try{return JSON.parse(localStorage.getItem("jh_sync")||"null")}catch(e){return null}}
 function syncSetup(){
  const c=syncCfg()||{};
- const repo=prompt("GitHub repo (account/repo):",c.repo||"");if(repo===null)return;
+ let repo=prompt("GitHub repo — format account/repo (NOT the token):",c.repo||"");if(repo===null)return;repo=repo.trim();if(repo.startsWith("github_pat")||repo.indexOf("/")<0){alert("That looks wrong — enter account/repo, e.g. ghondakly/Juhayna-dasboard");return;}
  const tok=prompt("Fine-grained token with Contents:write (leave empty for read-only viewer):",c.token||"");
  try{localStorage.setItem("jh_sync",JSON.stringify({repo:repo.trim(),token:(tok||"").trim()}))}catch(e){}
  updSyncBadge();alert("Saved. Uploads will now be shared via the repo.");}
 function updSyncBadge(){const c=syncCfg();const b=document.getElementById("syncBadge");
- b.textContent=c&&c.repo?("sync: "+c.repo+(c.token?" (writer)":" (viewer)")):"sync: off";}
+ const safe=c&&c.repo&&!c.repo.startsWith("github_pat")?c.repo:"(invalid — redo setup)";b.textContent=c&&c.repo?("sync: "+safe+(c.token?" (writer)":" (viewer)")):"sync: off";}
 async function pushData(){
  const c=syncCfg();if(!c||!c.repo||!c.token)return;
  const raw={owned,vendor,names:(typeof REAL!="undefined"&&REAL.names)||{},savedAt:new Date().toISOString()};
