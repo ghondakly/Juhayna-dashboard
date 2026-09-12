@@ -242,7 +242,7 @@ async function runAll(){
     const b=document.getElementById("statusBadge");b.textContent=`LIVE — owned ${owned.length.toLocaleString()} rows · vendor ${vendor.length.toLocaleString()} rows`;b.classList.remove("demo");b.style.background="#E3F1E7";b.style.color="#0B5C2C";
     render();
     pushData();
-  }catch(e){alert("Parse error: "+e.message)}
+  }catch(e){document.getElementById("syncDiag").textContent="✗ RUN error: "+e.message}
 }
 // ================= ANALYTICS + RENDER =================
 let charts={};
@@ -276,7 +276,7 @@ async function dKey(pw){const km=await crypto.subtle.importKey("raw",new TextEnc
  return crypto.subtle.deriveKey({name:"PBKDF2",salt:SALT,iterations:100000,hash:"SHA-256"},km,{name:"AES-GCM",length:256},false,["encrypt","decrypt"]);}
 async function encJSON(obj){const iv=crypto.getRandomValues(new Uint8Array(12));const k=await dKey(PW);
  const ct=await crypto.subtle.encrypt({name:"AES-GCM",iv},k,new TextEncoder().encode(JSON.stringify(obj)));
- const b=a=>btoa(String.fromCharCode(...new Uint8Array(a)));return{enc:1,iv:b(iv),ct:b(ct)};}
+ const b=x=>{const u=new Uint8Array(x);let s="";for(let i=0;i<u.length;i+=32768)s+=String.fromCharCode.apply(null,u.subarray(i,i+32768));return btoa(s)};return{enc:1,iv:b(iv),ct:b(ct)};}
 async function decJSON(d){const u=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));const k=await dKey(PW);
  const pt=await crypto.subtle.decrypt({name:"AES-GCM",iv:u(d.iv)},k,u(d.ct));return JSON.parse(new TextDecoder().decode(pt));}
 // ===== SHARED DATA SYNC (GitHub repo as free backend) =====
@@ -308,7 +308,10 @@ function syncSetup(){
 function updSyncBadge(){const c=syncCfg();const b=document.getElementById("syncBadge");
  const safe=c&&c.repo&&!c.repo.startsWith("github_pat")?c.repo:"(invalid — redo setup)";b.textContent=c&&c.repo?("sync: "+safe+(c.token?" (writer)":" (viewer)")):"sync: off";}
 async function pushData(){
- const c=syncCfg();if(!c||!c.repo||!c.token)return;
+ const o0=document.getElementById("syncDiag");
+ try{
+ const c=syncCfg();if(!c||!c.token){o0.textContent="(not pushed — no writer token configured)";return}if(!c.repo)return;
+ o0.textContent="pushing to "+c.repo+"...";
  const raw={owned,vendor,names:(typeof REAL!="undefined"&&REAL.names)||{},savedAt:new Date().toISOString()};
  const payload=JSON.stringify(PW?await encJSON(raw):raw);
  const b64=btoa(unescape(encodeURIComponent(payload)));
@@ -318,7 +321,8 @@ async function pushData(){
  const res=await fetch(url,{method:"PUT",headers:hd,body:JSON.stringify({message:"data update "+new Date().toISOString(),content:b64,...(sha?{sha}:{})})});
  const ok=res.ok;const b=document.getElementById("statusBadge");
  const o=document.getElementById("syncDiag");
- if(ok){b.textContent+=" · shared ✓";o.textContent="✓ pushed to "+c.repo+" at "+new Date().toLocaleTimeString()}else{o.textContent="✗ push failed HTTP "+res.status+" — press 🔧 Test sync for diagnosis"}}
+ if(ok){b.textContent+=" · shared ✓";o.textContent="✓ pushed to "+c.repo+" at "+new Date().toLocaleTimeString()}else{o.textContent="✗ push failed HTTP "+res.status+" — press 🔧 Test sync for diagnosis"}
+ }catch(e){o0.textContent="✗ push exception: "+e.message}}
 async function loadRemote(){
  const c=syncCfg();updSyncBadge();
  let url=null;
