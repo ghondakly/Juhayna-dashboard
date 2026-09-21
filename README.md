@@ -1,35 +1,33 @@
-# Juhayna Fleet Control Tower
+# Juhayna Fleet Control Tower — v2
 
-Static, single-file dashboard for owned-truck KPIs, driver incentives and vendor analytics.
-**All Excel parsing happens in the user's browser — no shipment data is ever uploaded to GitHub or any server.**
+Master-data-driven dashboard: owned-truck KPIs, driver incentives, vendor analytics, cost estimates.
+All Excel parsing happens in the browser — shipment files are never uploaded to any server.
 
-## Publish on GitHub Pages (5 minutes)
-1. Create a repository (e.g. `juhayna-dashboard`) — **Private repo works with Pages on paid plans; public repo is fine because the file contains no shipment data if you remove the preloaded snapshot (see below).**
-2. Upload `index.html` to the repository root.
-3. Settings → Pages → Source: `Deploy from a branch` → Branch `main` / root → Save.
-4. URL: `https://<account>.github.io/juhayna-dashboard/` — share with planners.
+## Deploy / update (GitHub Pages)
+1. Upload `index.html` to the repo root (overwrite the old one) — Settings → Pages → Deploy from branch `main` /root if first time.
+2. URL: `https://<account>.github.io/<repo>/` — hard-refresh after updates (add `?v=N`).
 
-Login: user `admin` — password set at build time (SHA-256 hash embedded; to change it, hash `user|password` and replace AUTH_HASH in index.html).
+Login: `admin` / `Juhayna#2026`. The password also decrypts shared data (AES-256; key derived from it).
+To change it: SHA-256 hash of `user|password` → replace AUTH_HASH in index.html; re-RUN once to re-encrypt data.json.
 
-## Daily use
-Open URL → login → choose the two Excel files (KPI tracker + SAP vendor extract) → RUN.
+## Daily use (planner)
+Open URL → login → choose files:
+1 · Owned raw (KPI tracker export — Shipment Update layout, headers row 4)
+2 · Spot/Rent raw (SAP extract — headers row 2)
+3 · Master data (this repo's `Juhayna-Dashboard-Master-Data.xlsx`, maintained by the team)
+→ RUN. With a writer token configured (⚙ Sync), data commits encrypted to `data.json`; every device sees it with the last-update time.
 
-## Data & history — how it works
-- GitHub only hosts the app. Excel files are **not** uploaded; they are read locally by the browser.
-- The file ships with a baked demo/snapshot dataset (`const REAL=`). To publish without any real data, replace it with empty arrays: `const REAL={owned:[],vendor:[],names:{}}`.
-- **History options** (no paid storage needed):
-  a) Commit a monthly JSON snapshot to the repo (free, versioned by git).
-  b) Browser localStorage per device (works on GitHub Pages).
-  c) Free-tier backend (Google Sheets API / Supabase) if multi-user history is required later.
+## Master data maintenance
+- Owned Route Master: route → weight (days), single/double incentive.
+- Truck Driver Master: truck ↔ driver, Temp D/C, Active flag.
+- Spot-Rent Route Master: route → weight, RT km, spot rates dry/chilled (amber = estimates; confirm & set Source=Confirmed).
+- Vendor Master: monthly rent dry/chilled, contracted MR trucks (drives MR utilization %).
+Add rows freely — the dashboard reads whole columns. Definitions: Short trip <1 day, Medium =1, Long >1; performance = points ÷ (trucks × working days excl. Fridays); truck mix High >95% / Med 90–95% / Low <90%.
 
-## Config
-Thresholds, fuel price, km table: edit the `COSTMODEL` block at the top of index.html.
+## Sync (shared data across devices)
+Writer: ⚙ Sync → repo `account/repo` → fine-grained token (only this repo, Contents: Read & write). 🔧 Test explains any failure in plain English.
+Viewers: nothing to configure when data.json is in this same repo.
+Every push = a git commit → free versioned history.
 
-## Shared data across devices (data.json in the repo)
-- Planner (writer): open dashboard → **⚙ Sync setup** → enter `account/repo` and a fine-grained token (repo access, permission **Contents: Read & write**). After every RUN, parsed data is committed to `data.json` automatically.
-- Everyone else (viewers): press ⚙ Sync setup, enter the repo, leave token empty — or nothing at all if `data.json` sits next to index.html on Pages. On open they see the shared data and "last update" timestamp.
-- Every upload is a git commit → free versioned history of all past uploads.
-- Note: on a public repo, `data.json` is publicly readable. Use a private repo + Pages (paid) or keep the repo public only if shipment data is acceptable to expose; token itself is never stored in the repo.
-
-## Data-leakage protection (free)
-`data.json` is now **AES-256-GCM encrypted in the browser before upload**, key derived (PBKDF2, 100k iterations) from the login password. A public repo therefore exposes only ciphertext. Decryption happens after login on any device. Changing the password = changing the encryption key (update AUTH_HASH and re-push data once). Recommended hygiene: keep the data repo private anyway (free), rotate the password quarterly, and scope the writer token to Contents-only on that single repo.
+## Export
+⬇ Export Excel downloads a workbook of all tables exactly as filtered on screen.
