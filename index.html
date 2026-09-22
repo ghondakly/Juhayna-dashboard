@@ -69,9 +69,9 @@ tr:nth-child(even) td{background:#FAFBFC}
  <span id="statusBadge" class="badge demo">DEMO — upload files & RUN</span></div>
 </header>
 <div class="bar">
- <label>1 · Owned raw</label><input type="file" id="fOwned" accept=".xlsx">
- <label>2 · Spot/Rent raw</label><input type="file" id="fVendor" accept=".xlsx">
- <label>3 · Master data</label><input type="file" id="fMaster" accept=".xlsx">
+ <label>1 · Owned raw <a href="#" onclick="tpl(1);return false" style="font-weight:400;font-size:10px">⬇ template</a></label><input type="file" id="fOwned" accept=".xlsx">
+ <label>2 · Spot/Rent raw <a href="#" onclick="tpl(2);return false" style="font-weight:400;font-size:10px">⬇ template</a></label><input type="file" id="fVendor" accept=".xlsx">
+ <label>3 · Master data <a href="#" onclick="tpl(3);return false" style="font-weight:400;font-size:10px">⬇ template</a></label><input type="file" id="fMaster" accept=".xlsx">
  <button class="runbtn" onclick="runAll()">▶ RUN</button>
  <button class="badge" style="cursor:pointer" onclick="syncSetup()">⚙ Sync</button>
  <button class="badge" style="cursor:pointer" onclick="syncTest()">🔧 Test</button>
@@ -427,22 +427,48 @@ function render(){
  applyLang();
 }
 
+
+async function dlWB(wb,fname){const o=document.getElementById("syncDiag");
+ try{if(window.claude&&claude.use){const dl=await claude.use("downloads");
+  if(dl){const data=XLSX.write(wb,{type:"array",bookType:"xlsx"});
+   try{await dl.save({filename:fname,data:new Blob([data])});o.textContent="✓ downloaded "+fname}
+   catch(e){o.textContent=e&&e.code=="declined"?"download cancelled":"✗ "+(e.message||e)}
+   return}}}catch(e){}
+ XLSX.writeFile(wb,fname);o.textContent="✓ downloaded "+fname}
+function tpl(n){const wb=XLSX.utils.book_new();
+ if(n==1){const aoa=[["Shipments — Owned trucks (paste SAP export here, keep this layout)"],[],[],
+  ["No","Shipment","Route","Shipment route","SpPI","Juhayna Driver No","Juhayna Driver Name","Car No.","Car No.2","PlDat.ChIn","Total"],
+  [1,"5512108","JUH26","Juh-Shabramant (Zayed)","D24","14266","<driver name>","2475","3178 ف س","2026-09-01",24],
+  [2,"5512109","JUH26","Juh-Obour","C40","14266","<driver name>","2475","3178 ف س","2026-09-01",48]];
+  const ws=XLSX.utils.aoa_to_sheet(aoa);ws["!cols"]=[{wch:5},{wch:10},{wch:8},{wch:26},{wch:6},{wch:14},{wch:20},{wch:9},{wch:12},{wch:12},{wch:7}];
+  XLSX.utils.book_append_sheet(wb,ws,"Shipment Update");dlWB(wb,"Template-1-Owned-Shipments.xlsx")}
+ if(n==2){const aoa=[["","Transportation cost"],
+  ["","PlDat.ChIn","Shipment","ShTy","Container ID","Driver Name","SvcPrvdr","Route name","SpPI","Over night Cost","Descrip.of Ship"],
+  ["","2026-09-01","5504346","TR","6741","<driver>","<vendor name>","Suez","J24","",""],
+  ["","2026-09-01","5504352","MR","إيجار شهرى","<driver>","<vendor name>","Mid Alex","J24","",""],
+  ["","2026-09-01","5504360","RE","7712","<driver>","<vendor name>","Cairo","J24","",""]];
+  const ws=XLSX.utils.aoa_to_sheet(aoa);ws["!cols"]=[{wch:3},{wch:12},{wch:10},{wch:6},{wch:12},{wch:14},{wch:22},{wch:14},{wch:6},{wch:12},{wch:14}];
+  XLSX.utils.book_append_sheet(wb,ws,"Spot-Rent extract");dlWB(wb,"Template-2-SpotRent-Extract.xlsx")}
+ if(n==3){
+  const t1=[["OWNED ROUTE MASTER"],[],["Route Name","Weight (days)","Incentive Single (EGP)","Incentive Double (EGP)","Comment"],
+   ["Juh-Shabramant (Zayed)",0.31,120,180,""],["Juhayna- Aswan",2.47,760,1140,""]];
+  const t2=[["TRUCK DRIVER MASTER"],[],["Truck No (plate)","Driver Name","Driver Code","Temp (D/C) — fill","Active (Y/N)"],
+   ["3178","<driver name>","14266","D","Y"]];
+  const t3=[["SPOT-RENT ROUTE MASTER"],[],["Route Name","Trips in extract","Weight (days)","Distance RT (km)","Spot Rate DRY (EGP/trip)","Spot Rate CHILLED (EGP/trip)","Source"],
+   ["Mid Alex","",0.79,490,8950,12550,"Confirmed"]];
+  const t4=[["VENDOR MASTER"],[],["Vendor (SvcPrvdr)","Shipments in extract","MR shipments","Monthly Rent DRY (EGP/truck/mo)","Monthly Rent CHILLED (EGP/truck/mo)","Contracted MR trucks (fill)","Notes"],
+   ["<vendor name>","","",110000,150000,5,""]];
+  [[t1,"Owned Route Master"],[t2,"Truck Driver Master"],[t3,"Spot-Rent Route Master"],[t4,"Vendor Master"]].forEach(([aoa,nm])=>{
+   const ws=XLSX.utils.aoa_to_sheet(aoa);ws["!cols"]=aoa[2].map(x=>({wch:Math.max(14,String(x).length+2)}));
+   XLSX.utils.book_append_sheet(wb,ws,nm)});
+  dlWB(wb,"Template-3-Master-Data.xlsx")}}
+
 async function exportXLSX(){
  const wb=XLSX.utils.book_new();
  [["tTrucks","Truck League"],["tDrivers","Driver KPI"],["tInc","Driver Incentive"],["tVend","Vendor League"],["tRE","RE Allowance"],["tRoutes","Vendor Routes"],["tConc","Concentration"]].forEach(([id,nm])=>{
   const el=document.getElementById(id);
   if(el&&el.rows&&el.rows.length>1)XLSX.utils.book_append_sheet(wb,XLSX.utils.table_to_sheet(el),nm)});
- const fname="Juhayna-Dashboard-"+new Date().toISOString().slice(0,10)+".xlsx";
- const o=document.getElementById("syncDiag");
- try{
-  if(window.claude&&claude.use){
-   const dl=await claude.use("downloads");
-   if(dl){const data=XLSX.write(wb,{type:"array",bookType:"xlsx"});
-    try{await dl.save({filename:fname,data:new Blob([data])});o.textContent="✓ exported "+fname}
-    catch(e){if(e&&e.code=="declined")o.textContent="export cancelled";else o.textContent="✗ export: "+(e.message||e)}
-    return}}
- }catch(e){}
- XLSX.writeFile(wb,fname);o.textContent="✓ exported "+fname}
+ dlWB(wb,"Juhayna-Dashboard-"+new Date().toISOString().slice(0,10)+".xlsx")}
 
 function tab(i,btn){document.querySelectorAll("main section").forEach((s,j)=>s.style.display=j==i?"":"none");
  document.querySelectorAll("nav button").forEach(b=>b.classList.remove("active"));btn.classList.add("active")}
