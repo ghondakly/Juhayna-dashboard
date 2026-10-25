@@ -173,7 +173,9 @@ function syncSetup(){const c=syncCfg()||{};let repo=prompt("GitHub repo — acco
  if(repo.startsWith("github_pat")||repo.startsWith("ghp_")||repo.indexOf("/")<0){alert("Enter account/repo, e.g. ghondakly/Juhayna-dashboard");return}
  const tok=(prompt("Fine-grained token with Contents:write (empty = viewer):",c.token||"")||"").trim();
  if(tok&&(tok.indexOf("github.com")>=0||tok.indexOf("/")>=0)){alert("That looks like a URL/repo, not a token. Paste the token (github_pat_...) or leave empty for viewer mode.");return}
- try{localStorage.setItem("jh_sync",JSON.stringify({repo,token:tok}))}catch(e){}
+ const cfgStr=JSON.stringify({repo,token:tok});let saved=false;
+ try{localStorage.setItem("jh_sync",cfgStr);saved=localStorage.getItem("jh_sync")==cfgStr}catch(e){}
+ if(!saved)alert("Could not save sync settings — private/incognito windows block storage, so the OLD token stays in use. Open the dashboard in a normal window and redo ⚙ Sync.");
  updSync();}
 function updSync(){const c=syncCfg();const b=document.getElementById("syncBadge");
  const safe=c&&c.repo&&!c.repo.startsWith("github_pat")?c.repo:"(redo setup)";
@@ -182,6 +184,7 @@ async function syncTest(){const o=document.getElementById("syncDiag");o.textCont
  if(!c||!c.repo){o.textContent="✗ No sync config — redo ⚙ in a non-private tab.";return}
  if(!c.token){o.textContent="viewer mode: reads data.json from "+c.repo;return}
  let m="repo: "+c.repo+" · token •••"+c.token.slice(-4)+" — ";
+ if(!/^(github_pat_|ghp_)/.test(c.token))m+="⚠ stored value does not look like a GitHub token (should start with github_pat_) — redo ⚙ Sync. ";
  try{const r=await fetch("https://api.github.com/repos/"+c.repo,{headers:{Authorization:"Bearer "+c.token}});
   if(r.status==200){m+="✓ token OK. ";const d=await fetch("https://api.github.com/repos/"+c.repo+"/contents/data.json",{headers:{Authorization:"Bearer "+c.token}});
    m+=d.status==200?"✓ data.json exists — sharing WORKS.":"(no data.json yet — press RUN)"}
