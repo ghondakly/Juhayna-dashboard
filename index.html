@@ -112,7 +112,7 @@ tr:nth-child(even) td{background:#FAFBFC}
  <div class="cards" id="owCards"></div>
  <div class="grid2">
   <div class="panel"><h3>Truck league — vs 1 point per working day</h3><table id="tTrucks"></table></div>
-  <div class="panel"><h3>Driver incentive — payslip window vs new counter</h3><table id="tInc"></table><div class="hint">Window: 16 of M-1 → 15 of M</div></div>
+  <div class="panel"><h3>Driver incentive — payslip window vs new counter</h3><table id="tInc"></table><div class="hint">Follows filters (period · driver · truck · temp). Period incentive = selected dates; payslip window: 16 of M-1 → 15 of M</div></div>
  </div>
  <div class="panel"><h3>Driver KPI — name &amp; ID</h3><table id="tDrivers"></table></div>
  <div class="panel"><h3>Points distribution — trucks by projected month points</h3><div class="chartbox"><canvas id="chHist"></canvas></div></div>
@@ -167,11 +167,13 @@ async function encJSON(o){const iv=crypto.getRandomValues(new Uint8Array(12));co
  const ct=await crypto.subtle.encrypt({name:"AES-GCM",iv},k,new TextEncoder().encode(JSON.stringify(o)));return{enc:1,iv:b64c(iv),ct:b64c(ct)}}
 async function decJSON(d){const u=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));const k=await dKey(PW);
  const pt=await crypto.subtle.decrypt({name:"AES-GCM",iv:u(d.iv)},k,u(d.ct));return JSON.parse(new TextDecoder().decode(pt))}
-function syncCfg(){try{return JSON.parse(localStorage.getItem("jh_sync")||"null")}catch(e){return null}}
-function syncSetup(){const c=syncCfg()||{};let repo=prompt("GitHub repo — account/repo (NOT the token):",c.repo||"");if(repo===null)return;repo=repo.trim();
- if(repo.startsWith("github_pat")||repo.indexOf("/")<0){alert("Enter account/repo, e.g. ghondakly/Juhayna-dashboard");return}
- const tok=prompt("Fine-grained token with Contents:write (empty = viewer):",c.token||"");
- try{localStorage.setItem("jh_sync",JSON.stringify({repo,token:(tok||"").trim()}))}catch(e){}
+const normRepo=s=>{s=(s||"").trim().replace(/^https?:\/\/(www\.)?github\.com\//i,"").replace(/\.git$/i,"");const p=s.split("/").filter(Boolean);return p.length>=2?p.slice(0,2).join("/"):s};
+function syncCfg(){try{const c=JSON.parse(localStorage.getItem("jh_sync")||"null");if(c)c.repo=normRepo(c.repo);return c}catch(e){return null}}
+function syncSetup(){const c=syncCfg()||{};let repo=prompt("GitHub repo — account/repo (NOT the token):",c.repo||"");if(repo===null)return;repo=normRepo(repo);
+ if(repo.startsWith("github_pat")||repo.startsWith("ghp_")||repo.indexOf("/")<0){alert("Enter account/repo, e.g. ghondakly/Juhayna-dashboard");return}
+ const tok=(prompt("Fine-grained token with Contents:write (empty = viewer):",c.token||"")||"").trim();
+ if(tok&&(tok.indexOf("github.com")>=0||tok.indexOf("/")>=0)){alert("That looks like a URL/repo, not a token. Paste the token (github_pat_...) or leave empty for viewer mode.");return}
+ try{localStorage.setItem("jh_sync",JSON.stringify({repo,token:tok}))}catch(e){}
  updSync();}
 function updSync(){const c=syncCfg();const b=document.getElementById("syncBadge");
  const safe=c&&c.repo&&!c.repo.startsWith("github_pat")?c.repo:"(redo setup)";
@@ -183,7 +185,7 @@ async function syncTest(){const o=document.getElementById("syncDiag");o.textCont
  try{const r=await fetch("https://api.github.com/repos/"+c.repo,{headers:{Authorization:"Bearer "+c.token}});
   if(r.status==200){m+="✓ token OK. ";const d=await fetch("https://api.github.com/repos/"+c.repo+"/contents/data.json",{headers:{Authorization:"Bearer "+c.token}});
    m+=d.status==200?"✓ data.json exists — sharing WORKS.":"(no data.json yet — press RUN)"}
-  else m+="✗ HTTP "+r.status+(r.status==404?" repo mismatch/scope":r.status==401?" token invalid":"");
+  else m+="✗ HTTP "+r.status+(r.status==404?" repo mismatch or token lacks access to this repo":r.status==401?" token invalid or EXPIRED — create a new fine-grained token and redo ⚙ Sync":"");
  }catch(e){m+="✗ "+e.message}
  o.textContent=m}
 async function pushData(){const o=document.getElementById("syncDiag");
@@ -194,10 +196,16 @@ async function pushData(){const o=document.getElementById("syncDiag");
   const b64=btoa(unescape(encodeURIComponent(payload)));
   const url="https://api.github.com/repos/"+c.repo+"/contents/data.json";
   const hd={Authorization:"Bearer "+c.token,Accept:"application/vnd.github+json"};
-  let sha;try{const g=await fetch(url,{headers:hd});if(g.ok)sha=(await g.json()).sha}catch(e){}
+  let sha;try{const g=await fetch(url,{headers:hd});if(g.ok)sha=(await g.json()).sha;
+   else if(g.status!=404){const ls=await fetch("https://api.github.com/repos/"+c.repo+"/contents/",{headers:hd});
+    if(ls.ok){const f=(await ls.json()).find(x=>x.name=="data.json");if(f)sha=f.sha}}}catch(e){}
   const res=await fetch(url,{method:"PUT",headers:hd,body:JSON.stringify({message:"data update "+new Date().toISOString(),content:b64,...(sha?{sha}:{})})});
   if(res.ok){document.getElementById("statusBadge").textContent+=" · shared ✓";o.textContent="✓ pushed at "+new Date().toLocaleTimeString()}
-  else o.textContent="✗ push failed HTTP "+res.status;
+  else{let msg="";try{msg=(await res.json()).message||""}catch(e){}
+   o.textContent="✗ push failed HTTP "+res.status+(msg?" — "+msg:"")+
+    (res.status==401?" → token invalid or EXPIRED: create a new fine-grained token (Contents: read & write on this repo) and redo ⚙ Sync":
+     res.status==404?" → token has no access to "+c.repo+": check repo name + token's repository access & Contents permission":
+     res.status==409||res.status==422?" → conflict/stale sha: press RUN again":"")}
  }catch(e){o.textContent="✗ push exception: "+e.message}}
 async function loadRemote(){const c=syncCfg();updSync();
  let url=c&&c.repo?"https://raw.githubusercontent.com/"+c.repo+"/main/data.json":"data.json";
@@ -353,18 +361,19 @@ function render(){
  C("chPerfPie",{type:"pie",data:{labels:["High >95% ("+hi+" · "+Math.round(hi/Math.max(1,league.length)*100)+"%)","Med 90-95% ("+md+" · "+Math.round(md/Math.max(1,league.length)*100)+"%)","Low <90% ("+lo+" · "+Math.round(lo/Math.max(1,league.length)*100)+"%)"],datasets:[{data:[hi,md,lo],backgroundColor:["#0B5C2C","#B8860B","#C0392B"]}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:"right",labels:{font:{size:9},boxWidth:9}}}}});
  document.getElementById("tTrucks").innerHTML="<tr><th>Truck</th><th>Trips</th><th>Points</th><th>Perf %</th><th>Projected</th><th>Status</th></tr>"+
   league.map(x=>`<tr><td><b>${x.k}</b></td><td>${x.t}</td><td>${x.p.toFixed(1)}</td><td><b>${(x.pw*100).toFixed(0)}%</b></td><td>${x.proj.toFixed(1)}</td><td><span class="pill ${x.pw>=1?"p-ok":x.pw>=.85?"p-w":"p-b"}">${x.pw>=1?"ON TRACK":x.pw>=.85?"WATCH":"BEHIND"}</span></td></tr>`).join("");
- // incentive windows from real dates
- const maxD=owned.map(r=>r.d).sort().pop()||"2026-01-01";
+ // incentive — follows the active filters (period, driver, truck, temp); windows from filtered dates
+ const maxD=(ow.length?ow.map(r=>r.d):owned.map(r=>r.d)).sort().pop()||"2026-01-01";
  const Y=+maxD.slice(0,4),Mo=+maxD.slice(5,7);
  const pad=n=>String(n).padStart(2,"0");
  const dueF=(Mo==1?(Y-1)+"-12-16":Y+"-"+pad(Mo-1)+"-16"),dueT=Y+"-"+pad(Mo)+"-15",nwF=Y+"-"+pad(Mo)+"-16";
  const inDue=r=>r.d>=dueF&&r.d<=dueT,inNw=r=>r.d>=nwF;
- const byD={};owned.forEach(r=>{const o=byD[r.driver]=byD[r.driver]||{due:0,nw:0,miss:0};const i=incOf(r);
-  if(inDue(r)){if(i==null)o.miss++;else o.due+=i}if(inNw(r)&&i!=null)o.nw+=i});
- const dl2=Object.entries(byD).map(([k,v])=>({k,...v})).sort((a,b)=>b.due-a.due);
- document.getElementById("tInc").innerHTML="<tr><th>Driver</th><th>Due next payslip</th><th>New counter</th><th>Missing rates</th></tr>"+
-  dl2.map(x=>`<tr><td><b>${x.k}</b> ${nameOf(x.k).slice(0,14)}</td><td>${x.due.toLocaleString()}</td><td>${x.nw.toLocaleString()}</td><td>${x.miss||""}</td></tr>`).join("")+
-  `<tr><td><b>TOTAL</b></td><td><b>${Object.values(byD).reduce((a,v)=>a+v.due,0).toLocaleString()}</b></td><td><b>${Object.values(byD).reduce((a,v)=>a+v.nw,0).toLocaleString()}</b></td><td></td></tr>`;
+ const byD={};ow.forEach(r=>{const o=byD[r.driver]=byD[r.driver]||{per:0,due:0,nw:0,miss:0};const i=incOf(r);
+  if(i==null)o.miss++;else{o.per+=i;if(inDue(r))o.due+=i;if(inNw(r))o.nw+=i}});
+ const dl2=Object.entries(byD).map(([k,v])=>({k,...v})).sort((a,b)=>b.per-a.per);
+ const sumD=f=>Object.values(byD).reduce((a,v)=>a+v[f],0);
+ document.getElementById("tInc").innerHTML="<tr><th>Driver</th><th>Period incentive</th><th>Due next payslip</th><th>New counter</th><th>Missing rates</th></tr>"+
+  dl2.map(x=>`<tr><td><b>${x.k}</b> ${nameOf(x.k).slice(0,14)}</td><td><b>${x.per.toLocaleString()}</b></td><td>${x.due.toLocaleString()}</td><td>${x.nw.toLocaleString()}</td><td>${x.miss||""}</td></tr>`).join("")+
+  `<tr><td><b>TOTAL</b></td><td><b>${sumD("per").toLocaleString()}</b></td><td><b>${sumD("due").toLocaleString()}</b></td><td><b>${sumD("nw").toLocaleString()}</b></td><td></td></tr>`;
  const byDr={};ow.forEach(r=>{const o=byDr[r.driver]=byDr[r.driver]||{t:0,p:0,s:0,m:0,l:0};o.t++;const w=wOf(r);o.p+=w;const c=clsOf(w);c=="Short"?o.s++:c=="Long"?o.l++:o.m++});
  const dl=Object.entries(byDr).map(([k,v])=>({k,n:nameOf(k),t:v.t,p:v.p,s:v.s,m:v.m,l:v.l,pw:v.p/elapsedWD})).sort((a,b)=>b.pw-a.pw);
  document.getElementById("tDrivers").innerHTML="<tr><th>ID</th><th>Driver</th><th>Trips</th><th>Short (&lt;1d)</th><th>Medium (=1d)</th><th>Long (&gt;1d)</th><th>Points</th><th>Perf %</th><th>Status</th></tr>"+
