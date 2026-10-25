@@ -167,11 +167,13 @@ async function encJSON(o){const iv=crypto.getRandomValues(new Uint8Array(12));co
  const ct=await crypto.subtle.encrypt({name:"AES-GCM",iv},k,new TextEncoder().encode(JSON.stringify(o)));return{enc:1,iv:b64c(iv),ct:b64c(ct)}}
 async function decJSON(d){const u=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));const k=await dKey(PW);
  const pt=await crypto.subtle.decrypt({name:"AES-GCM",iv:u(d.iv)},k,u(d.ct));return JSON.parse(new TextDecoder().decode(pt))}
-function syncCfg(){try{return JSON.parse(localStorage.getItem("jh_sync")||"null")}catch(e){return null}}
-function syncSetup(){const c=syncCfg()||{};let repo=prompt("GitHub repo — account/repo (NOT the token):",c.repo||"");if(repo===null)return;repo=repo.trim();
- if(repo.startsWith("github_pat")||repo.indexOf("/")<0){alert("Enter account/repo, e.g. ghondakly/Juhayna-dashboard");return}
- const tok=prompt("Fine-grained token with Contents:write (empty = viewer):",c.token||"");
- try{localStorage.setItem("jh_sync",JSON.stringify({repo,token:(tok||"").trim()}))}catch(e){}
+const normRepo=s=>{s=(s||"").trim().replace(/^https?:\/\/(www\.)?github\.com\//i,"").replace(/\.git$/i,"");const p=s.split("/").filter(Boolean);return p.length>=2?p.slice(0,2).join("/"):s};
+function syncCfg(){try{const c=JSON.parse(localStorage.getItem("jh_sync")||"null");if(c)c.repo=normRepo(c.repo);return c}catch(e){return null}}
+function syncSetup(){const c=syncCfg()||{};let repo=prompt("GitHub repo — account/repo (NOT the token):",c.repo||"");if(repo===null)return;repo=normRepo(repo);
+ if(repo.startsWith("github_pat")||repo.startsWith("ghp_")||repo.indexOf("/")<0){alert("Enter account/repo, e.g. ghondakly/Juhayna-dashboard");return}
+ const tok=(prompt("Fine-grained token with Contents:write (empty = viewer):",c.token||"")||"").trim();
+ if(tok&&(tok.indexOf("github.com")>=0||tok.indexOf("/")>=0)){alert("That looks like a URL/repo, not a token. Paste the token (github_pat_...) or leave empty for viewer mode.");return}
+ try{localStorage.setItem("jh_sync",JSON.stringify({repo,token:tok}))}catch(e){}
  updSync();}
 function updSync(){const c=syncCfg();const b=document.getElementById("syncBadge");
  const safe=c&&c.repo&&!c.repo.startsWith("github_pat")?c.repo:"(redo setup)";
@@ -183,7 +185,7 @@ async function syncTest(){const o=document.getElementById("syncDiag");o.textCont
  try{const r=await fetch("https://api.github.com/repos/"+c.repo,{headers:{Authorization:"Bearer "+c.token}});
   if(r.status==200){m+="✓ token OK. ";const d=await fetch("https://api.github.com/repos/"+c.repo+"/contents/data.json",{headers:{Authorization:"Bearer "+c.token}});
    m+=d.status==200?"✓ data.json exists — sharing WORKS.":"(no data.json yet — press RUN)"}
-  else m+="✗ HTTP "+r.status+(r.status==404?" repo mismatch/scope":r.status==401?" token invalid":"");
+  else m+="✗ HTTP "+r.status+(r.status==404?" repo mismatch or token lacks access to this repo":r.status==401?" token invalid or EXPIRED — create a new fine-grained token and redo ⚙ Sync":"");
  }catch(e){m+="✗ "+e.message}
  o.textContent=m}
 async function pushData(){const o=document.getElementById("syncDiag");
@@ -194,10 +196,16 @@ async function pushData(){const o=document.getElementById("syncDiag");
   const b64=btoa(unescape(encodeURIComponent(payload)));
   const url="https://api.github.com/repos/"+c.repo+"/contents/data.json";
   const hd={Authorization:"Bearer "+c.token,Accept:"application/vnd.github+json"};
-  let sha;try{const g=await fetch(url,{headers:hd});if(g.ok)sha=(await g.json()).sha}catch(e){}
+  let sha;try{const g=await fetch(url,{headers:hd});if(g.ok)sha=(await g.json()).sha;
+   else if(g.status!=404){const ls=await fetch("https://api.github.com/repos/"+c.repo+"/contents/",{headers:hd});
+    if(ls.ok){const f=(await ls.json()).find(x=>x.name=="data.json");if(f)sha=f.sha}}}catch(e){}
   const res=await fetch(url,{method:"PUT",headers:hd,body:JSON.stringify({message:"data update "+new Date().toISOString(),content:b64,...(sha?{sha}:{})})});
   if(res.ok){document.getElementById("statusBadge").textContent+=" · shared ✓";o.textContent="✓ pushed at "+new Date().toLocaleTimeString()}
-  else o.textContent="✗ push failed HTTP "+res.status;
+  else{let msg="";try{msg=(await res.json()).message||""}catch(e){}
+   o.textContent="✗ push failed HTTP "+res.status+(msg?" — "+msg:"")+
+    (res.status==401?" → token invalid or EXPIRED: create a new fine-grained token (Contents: read & write on this repo) and redo ⚙ Sync":
+     res.status==404?" → token has no access to "+c.repo+": check repo name + token's repository access & Contents permission":
+     res.status==409||res.status==422?" → conflict/stale sha: press RUN again":"")}
  }catch(e){o.textContent="✗ push exception: "+e.message}}
 async function loadRemote(){const c=syncCfg();updSync();
  let url=c&&c.repo?"https://raw.githubusercontent.com/"+c.repo+"/main/data.json":"data.json";
