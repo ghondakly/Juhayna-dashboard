@@ -279,6 +279,7 @@ const $=id=>document.getElementById(id);
 const T=v=>v==null?"":String(v).trim();
 const code=v=>T(v).replace(/\.0+$/,"");
 const norm=s=>T(s).toLowerCase().replace(/[‐-―]/g,"-").replace(/\s+/g," ");
+const rnorm=s=>norm(s).replace(/\s*([-+])\s*/g,"$1");
 const hkey=s=>T(s).toLowerCase().replace(/[^a-z0-9؀-ۿ]/g,"");
 const pad=n=>String(n).padStart(2,"0");
 const ymd=(y,m,d)=>y+"-"+pad(m)+"-"+pad(d);
@@ -432,7 +433,7 @@ function readMaster(wb,fname){
   const dup=(tab,keyf,label)=>{const seen={};tabs[tab].forEach(r=>{const k=keyf(r);if(!k)return;(seen[k]=seen[k]||[]).push(r._row)});
     Object.entries(seen).filter(([,v])=>v.length>1).forEach(([k,v])=>mk("M8","B",`${tab}: duplicate ${label} “${k}”`,"Rows "+v.join(", ")+". Keep one row per key."))};
   dup("SpPI Master",r=>T(r.code).toUpperCase(),"SpPI");dup("Shipment Type Master",r=>T(r.code).toUpperCase(),"ShTy");
-  dup("Truck Master",r=>code(r.plate),"plate");dup("Driver Master",r=>code(r.code),"driver code");dup("Owned Route Master",r=>norm(r.route),"route");
+  dup("Truck Master",r=>code(r.plate),"plate");dup("Driver Master",r=>code(r.code),"driver code");dup("Owned Route Master",r=>rnorm(r.route),"route");
   tabs["SpPI Master"].forEach(r=>{const t=T(r.temp).toUpperCase();if(t!="D"&&t!="C")mk("M8","W",`SpPI ${T(r.code)}: temperature must be D or C`,"Row "+r._row);
     m.sppi[T(r.code).toUpperCase()]={temp:t=="C"?"C":"D",dbl:/^d/i.test(T(r.load)),pal:nn(r.pal),st:T(r.st)}});
   tabs["Shipment Type Master"].forEach(r=>{const b=T(r.bucket).toUpperCase();if(!["SPOT","MR","RE","NONE"].includes(b))mk("M8","B",`ShTy ${T(r.code)}: cost bucket “${T(r.bucket)}” not valid`,"Use SPOT, MR, RE or NONE (row "+r._row+").");
@@ -443,22 +444,22 @@ function readMaster(wb,fname){
   (tabs["Stoppage Reasons"]||[]).forEach(r=>{const c=T(r.cat);if(!CATS.includes(c))mk("M8","W",`Stoppage reason “${T(r.code)}”: category “${c}” not recognised`,"Use one of: "+CATS.join(", ")+" (row "+r._row+").");
     m.stops[T(r.code)]={cat:CATS.includes(c)?c:"Other",stop:!/^n/i.test(T(r.stop)),st:T(r.st)}});
   tabs["Driver Master"].forEach(r=>{m.drivers[code(r.code)]={name:T(r.name),truck:code(r.truck),active:!/^n/i.test(T(r.active)),row:r._row}});
-  tabs["Owned Route Master"].forEach(r=>{m.oroutes[norm(r.route)]={name:T(r.route),w:nn(r.w),km:nn(r.km),i1:nn(r.i1),i2:nn(r.i2),plant:yn(r.plant),ist:T(r.ist)||"Estimated",kst:T(r.kst)||"Estimated",row:r._row}});
-  tabs["Spot-Rent Route Master"].forEach(r=>{const k=norm(r.route);(m.sroutes[k]=m.sroutes[k]||[]).push({name:T(r.route),w:nn(r.w),km:nn(r.km),rd:nn(r.rd),rc:nn(r.rc),
+  tabs["Owned Route Master"].forEach(r=>{m.oroutes[rnorm(r.route)]={name:T(r.route),w:nn(r.w),km:nn(r.km),i1:nn(r.i1),i2:nn(r.i2),plant:yn(r.plant),ist:T(r.ist)||"Estimated",kst:T(r.kst)||"Estimated",row:r._row}});
+  tabs["Spot-Rent Route Master"].forEach(r=>{const k=rnorm(r.route);(m.sroutes[k]=m.sroutes[k]||[]).push({name:T(r.route),w:nn(r.w),km:nn(r.km),rd:nn(r.rd),rc:nn(r.rc),
     from:parseDate(r.from)||"0000-01-01",to:parseDate(r.to)||"9999-12-31",sd:T(r.sd)||"Estimated",sc:T(r.sc)||"Estimated",kst:T(r.kst)||"Estimated",row:r._row})});
   tabs["Vendor Contracts"].forEach(r=>{const k=T(r.vendor).replace(/\s+/g," ");(m.contracts[k]=m.contracts[k]||[]).push({vendor:k,from:parseDate(r.from)||"0000-01-01",to:parseDate(r.to)||"9999-12-31",
     rd:nn(r.rd),rc:nn(r.rc),ct:nn(r.ct)||0,vat:yn(r.vat),fuel:/^v/i.test(T(r.fuel))?"Vendor":"Juhayna",st:T(r.st)||"Estimated",row:r._row})});
   const overlap=(arr,label)=>Object.values(arr).forEach(list=>{const s=[...list].sort((a,b)=>a.from<b.from?-1:1);
     for(let i=1;i<s.length;i++)if(s[i].from<=s[i-1].to)mk("M8","B",`${label} “${s[i].name||s[i].vendor}”: validity periods overlap`,`Rows ${s[i-1].row} and ${s[i].row}. Close the old row with a Valid to date.`)});
   overlap(m.sroutes,"Spot-Rent route");overlap(m.contracts,"Vendor contract");
-  tabs["Route Aliases"].forEach(r=>{m.alias[norm(r.alias)]={to:norm(r.to),tbl:/^o/i.test(T(r.tbl))?"O":"S",row:r._row}});
+  tabs["Route Aliases"].forEach(r=>{m.alias[rnorm(r.alias)]={to:rnorm(r.to),tbl:/^o/i.test(T(r.tbl))?"O":"S",row:r._row}});
   Object.entries(m.alias).forEach(([a,x])=>{if(!(x.tbl=="O"?m.oroutes:m.sroutes)[x.to])mk("M8","W",`Route alias “${a}” points to an unknown route`,"Alias row "+x.row)});
   const ups=[...tabs["Truck Master"],...tabs["Driver Master"],...tabs["Owned Route Master"],...tabs["Spot-Rent Route Master"]].map(r=>parseDate(r.upd)).filter(Boolean).sort();
   m.upd=ups.length?ups[ups.length-1]:null;
   return{M:m,iss}}
 
 /* ================= resolve every record against master ================= */
-function routeKey(r,tbl){const k=norm(r.route);const a=M.alias[k];return a&&a.tbl==tbl?a.to:k}
+function routeKey(r,tbl){const k=rnorm(r.route);const a=M.alias[k];return a&&a.tbl==tbl?a.to:k}
 function resolve(r){
   const x=r.x={};
   if(r.src=="S"){x.truck=M.trucks[r.plate]||null;x.reason=M.stops[r.code]||null;x.cat=x.reason?x.reason.cat:"Unclassified";x.stop=x.reason?x.reason.stop:true;return}const sp=M.sppi[r.spi];x.sp=!!sp;x.temp=sp?sp.temp:null;x.dbl=sp?sp.dbl:false;
@@ -691,7 +692,7 @@ function renderHealth(){
   const recById={};DS.O.concat(DS.V,DS.S||[]).forEach(r=>recById[r.id]=r);
   $("hIssues").innerHTML=H.iss.map((i,k)=>{const open=openOf(i),done=i.sev=="B"&&i.ex&&open==0;
     const ents=Object.entries(i.ents||{}).sort((a,b)=>b[1]-a[1]);
-    const cnt=i.ids.length?`${i.ids.length.toLocaleString()} shipment${i.ids.length>1?"s":""}`:ents.length?`${ents.length} item${ents.length>1?"s":""}`:"";
+    const unit=(recById[i.ids[0]]||{}).src=="S"?"log entr":"shipment",cnt=i.ids.length?`${i.ids.length.toLocaleString()} ${unit}${unit=="log entr"?(i.ids.length>1?"ies":"y"):(i.ids.length>1?"s":"")}`:ents.length?`${ents.length} item${ents.length>1?"s":""}`:"";
     const sample=i.ids.slice(0,40).map(id=>recById[id]).filter(Boolean);
     return`<details class="issue ${done?"done":""}" ${k<3&&i.sev=="B"?"open":""}><summary><span class="pill ${i.sev=="B"?"p-b":i.sev=="W"?"p-w":"p-i"}">${i.rule}</span><span class="t">${esc(i.title)}${done?" — excluded":""}</span><span class="cnt">${cnt}</span><span class="d">${esc(i.detail)}</span></summary>
       <div class="body">${ents.length?`<div style="display:flex;flex-wrap:wrap;gap:6px">${ents.slice(0,40).map(([e,c])=>`<span class="pill p-i">${esc(e)}${c>1?" · "+c:""}</span>`).join("")}${ents.length>40?`<span class="muted">+${ents.length-40} more</span>`:""}</div>`:""}
