@@ -326,7 +326,11 @@ function render(){
  if(fl=="SPOT"){ow=[];ve=ve.filter(r=>["TR","DD","ZTRB","DTR"].includes(r.shty))}
  if(cl){if(cl=="OWNED")ve=[];else{ow=[];ve=ve.filter(r=>r.shty==cl)}}
  const days=[...new Set(ow.map(r=>r.d).concat(ve.map(r=>r.d)))].sort();
- const elapsedWD=days.filter(d=>wd(d)!=5).length||1;
+ // working days = calendar days From→To (capped to the owned file's date range), Fridays excluded — independent of truck/driver filters
+ const clampWD=src=>{const ds=src.map(r=>r.d).sort();if(!ds.length)return{F:f,T:t,wd:[]};
+  const F=f<ds[0]?ds[0]:f,T=t>ds[ds.length-1]?ds[ds.length-1]:t;return{F,T,wd:F<=T?wdList(F,T):[]}};
+ const{F:pF,T:pT,wd:perWD}=clampWD(owned);
+ const elapsedWD=perWD.length||1;
  document.getElementById("crumb").textContent=f+" → "+t+" · "+(ft?(ft=="D"?"Dry":"Chilled"):"All")+(SEL.truck.size?" · "+SEL.truck.size+" trucks":"")+(SEL.driver.size?" · "+SEL.driver.size+" drivers":"")+(SEL.vendor.size?" · "+SEL.vendor.size+" vendors":"");
  // overview
  const pts=ow.reduce((a,r)=>a+wOf(r),0);
@@ -366,7 +370,7 @@ function render(){
   card((ow.length/trucksN).toFixed(1),"TURNOVER معدل الدوران","shipments ÷ "+trucksN+" trucks")+
   card((perf*100).toFixed(0)+"%","PERFORMANCE معدل الأداء","points "+pts.toFixed(0)+" ÷ target "+(trucksN*elapsedWD),perf>=1?"good":"bad")+
   card(pts.toFixed(0),"POINTS (period)")+
-  card(elapsedWD,"WORKING DAYS (Fri excluded)")+
+  card(elapsedWD,"WORKING DAYS (Fri excluded)",perWD.length?pF+" → "+pT:"no owned data in period")+
   `<div class="card"><div class="l">TRUCK PERFORMANCE MIX</div><div style="position:relative;height:110px"><canvas id="chPerfPie"></canvas></div></div>`;
  C("chPerfPie",{type:"pie",data:{labels:["High >95% ("+hi+" · "+Math.round(hi/Math.max(1,league.length)*100)+"%)","Med 90-95% ("+md+" · "+Math.round(md/Math.max(1,league.length)*100)+"%)","Low <90% ("+lo+" · "+Math.round(lo/Math.max(1,league.length)*100)+"%)"],datasets:[{data:[hi,md,lo],backgroundColor:["#0B5C2C","#B8860B","#C0392B"]}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{position:"right",labels:{font:{size:9},boxWidth:9}}}}});
  document.getElementById("tTrucks").innerHTML="<tr><th>Truck</th><th>Trips</th><th>Points</th><th>Perf %</th><th>Projected</th><th>Status</th></tr>"+
@@ -385,9 +389,6 @@ function render(){
   dl2.map(x=>`<tr><td><b>${x.k}</b> ${nameOf(x.k).slice(0,14)}</td><td><b>${x.per.toLocaleString()}</b></td><td>${x.due.toLocaleString()}</td><td>${x.nw.toLocaleString()}</td><td>${x.miss||""}</td></tr>`).join("")+
   `<tr><td><b>TOTAL</b></td><td><b>${sumD("per").toLocaleString()}</b></td><td><b>${sumD("due").toLocaleString()}</b></td><td><b>${sumD("nw").toLocaleString()}</b></td><td></td></tr>`;
  // idle days — a truck is busy from shipment date for ceil(route weight) days (est. return); idle = working day not covered
- const clampWD=src=>{const ds=src.map(r=>r.d).sort();if(!ds.length)return{F:f,T:t,wd:[]};
-  const F=f<ds[0]?ds[0]:f,T=t>ds[ds.length-1]?ds[ds.length-1]:t;return{F,T,wd:F<=T?wdList(F,T):[]}};
- const{F:pF,T:pT,wd:perWD}=clampWD(owned);
  const ownOK=!(fl=="MR"||fl=="SPOT"||(cl&&cl!="OWNED"));
  const idleSrc=ownOK&&perWD.length?owned.filter(r=>r.d>=addD(pF,-3)&&r.d<=pT&&(!ft||r.temp==ft)&&(!SEL.truck.size||SEL.truck.has(r.truck))&&(!SEL.driver.size||SEL.driver.has(r.driver))):[];
  const busy={},lastRet={};
