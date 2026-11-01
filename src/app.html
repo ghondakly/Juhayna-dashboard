@@ -171,6 +171,7 @@ tr.tot td{font-weight:700;background:var(--sunk)}
   <div class="slot"><label for="fOwned">1 · Owned shipments <a data-tpl="1">template</a></label><input type="file" id="fOwned" accept=".xlsx,.xls"></div>
   <div class="slot"><label for="fVendor">2 · Spot/rent extract <a data-tpl="2">template</a></label><input type="file" id="fVendor" accept=".xlsx,.xls"></div>
   <div class="slot"><label for="fMaster">3 · Master data v2 <a data-tpl="3">download current</a></label><input type="file" id="fMaster" accept=".xlsx,.xls"></div>
+  <div class="slot"><label for="fStop">4 · Truck stoppages <a data-tpl="4">template</a></label><input type="file" id="fStop" accept=".xlsx,.xls"></div>
   <button class="btn pri" type="button" id="runBtn">▶ Run checks</button>
   <button class="btn sm" type="button" id="syncBtn">⚙ Sync</button>
   <button class="btn sm" type="button" id="testBtn">Test sync</button>
@@ -202,12 +203,17 @@ tr.tot td{font-weight:700;background:var(--sunk)}
   <div class="gate" id="g-cost" hidden></div>
   <div id="c-cost" class="screen">
     <div class="kpis" id="costKpis"></div>
+    <div class="banner w" id="covNote" hidden></div>
     <div class="grid2">
       <div class="panel"><h3>Cost per point (truck-day)</h3><div class="cpp" id="cpp"></div><span class="sub">Spend ÷ route-weight points. Owned = variable cost only (fuel + incentive), per decision 5.</span></div>
       <div class="panel"><h3>Where the money goes</h3><div class="stack" id="mixBar"></div><div class="keys" id="mixKeys"></div><div id="confidence" class="sub"></div></div>
     </div>
+    <div class="grid2">
+      <div class="panel"><h3>Invoices vs rate card, by month</h3><div class="sub" id="invSum"></div><div class="tbl tscroll"><table id="tInvMonth"></table></div></div>
+      <div class="panel"><h3>Largest invoice differences by route</h3><div class="tbl tscroll"><table id="tInvRoute"></table></div><div class="sub">Invoice net vs the rate card valid on each trip date, same temperature. Sorted by the EGP difference.</div></div>
+    </div>
     <div class="panel"><h3>Rented trucks (MR) by vendor and month</h3><div class="sub" id="rentNote"></div><div class="tbl tscroll"><table id="tRent"></table></div></div>
-    <div class="panel"><h3>Spot and returns by vendor</h3><div class="sub">Spot freight at route rate (+14% VAT, price list excludes VAT) + overnight cost from the extract. RE: first <span id="reFreeN">3</span> per vendor per calendar month free, then route rate + VAT.</div><div class="tbl tscroll"><table id="tSpot"></table></div></div>
+    <div class="panel"><h3>Spot and returns by vendor</h3><div class="sub" id="spotNote">RE: first <span id="reFreeN">3</span> per vendor per calendar month free.</div><div class="tbl tscroll"><table id="tSpot"></table></div></div>
   </div>
 </section>
 
@@ -238,6 +244,11 @@ tr.tot td{font-weight:700;background:var(--sunk)}
       <div class="panel"><h3>Driver incentive</h3><div class="tbl tscroll"><table id="tInc"></table></div><div class="sub">Period incentive = selected dates. Payslip window: 16 of M-1 → 15 of M (from the latest filtered date).</div></div>
     </div>
     <div class="panel"><h3>Idle days — working days with no trip on the road</h3><div class="tbl tscroll"><table id="tIdle"></table></div><div class="sub" id="idleNote"></div></div>
+    <div class="grid2">
+      <div class="panel"><h3>Stoppages by root cause</h3><div class="tbl"><table id="tStopCat"></table></div><div class="sub" id="stopNote"></div></div>
+      <div class="panel"><h3>Stoppage truck-days by month</h3><div class="tbl tscroll"><table id="tStopMonth"></table></div></div>
+    </div>
+    <div class="panel"><h3>Stoppages by truck</h3><div class="tbl tscroll"><table id="tStopTruck"></table></div><div class="sub">From the SAP truck status log. Counted on working days (Fridays and Calendar holidays excluded); “On trip” days are working days, not stoppages.</div></div>
     <div class="panel"><h3>Driver KPI</h3><div class="tbl tscroll"><table id="tDrivers"></table></div></div>
   </div>
 </section>
@@ -315,8 +326,12 @@ const SCHEMA={
       driver:["juhaynadriverno","driverno","drivercode"],dname:["juhaynadrivername","drivername"],car2:["carno2"],date:["pldatchin","plannedcheckin","shipmentdate","date"]},
      req:["ship","route","spi","driver","car2","date"],sig:["carno2","juhaynadriverno"]},
   V:{label:"Spot/rent extract",cols:{date:["pldatchin","shipmentdate","date"],ship:["shipment","shipmentno"],shty:["shty","shipmenttype"],
-      vendor:["svcprvdr","serviceprovider","vendor"],route:["routename"],spi:["sppi"],ov:["overnightcost","overnight"],dname:["drivername"]},
-     req:["date","ship","shty","vendor","route","spi"],sig:["svcprvdr","shty"]}};
+      vendor:["svcprvdr","serviceprovider","numberofforwardingagent","forwardingagent","vendor"],route:["routename","shipmentroute"],spi:["sppi"],ov:["overnightcost","overnight"],dname:["drivername"],
+      net:["netvalue"],tax:["taxamount"],dest:["destpoint"]},
+     req:["date","ship","shty","vendor","route","spi"],sig:["shty","pldatchin"]},
+  S:{label:"Truck stoppage log",cols:{equip:["equipment"],desc:["equipmentdescriptio","equipmentdescription","plate"],code:["codetext","reason"],date:["date"]},
+     req:["desc","code","date"],sig:["codetext","equipmentdescriptio"]}};
+const SLOT={O:1,V:2,S:4};
 function headerScan(rows,sch){let best={i:-1,map:{},hit:-1};
   for(let i=0;i<Math.min(20,rows.length);i++){const map={};(rows[i]||[]).forEach((c,j)=>{const h=hkey(c);
       for(const [f,al] of Object.entries(sch.cols))if(map[f]==null&&al.includes(h))map[f]=j});
@@ -326,7 +341,7 @@ function sigScore(rows,sig){const set=new Set();rows.slice(0,20).forEach(r=>(r||
 const isMasterWB=wb=>wb.SheetNames.some(n=>/route master|vendor master|vendor contracts|parameters/i.test(n));
 
 function readData(wb,src,fname){
-  const sch=SCHEMA[src],other=src=="O"?"V":"O",fileIssues=[];
+  const sch=SCHEMA[src],fileIssues=[];
   const meta={src,file:fname,sheet:"",headerRow:null,rows:0,read:0,legacy:false};
   if(isMasterWB(wb)){fileIssues.push(fIssue("F2",`${fname} is a master data file, not the ${sch.label.toLowerCase()}`,"Upload it in slot 3 (Master data)."));return{recs:[],meta,fileIssues}}
   let best=null;
@@ -334,20 +349,33 @@ function readData(wb,src,fname){
     const h=headerScan(rows,sch);if(!best||h.hit>best.h.hit)best={sn,rows,h,r0:ws["!ref"]?XLSX.utils.decode_range(ws["!ref"]).s.r:0}}
   if(!best||best.h.hit<sch.req.length){
     const rows=best?best.rows:[];
-    if(sigScore(rows,SCHEMA[other].sig)==2&&sigScore(rows,sch.sig)<2){fileIssues.push(fIssue("F2",`${fname} looks like the ${SCHEMA[other].label.toLowerCase()}`,`Upload it in slot ${other=="O"?1:2}.`));}
+    const other=Object.keys(SCHEMA).find(k=>k!=src&&sigScore(rows,SCHEMA[k].sig)==SCHEMA[k].sig.length);
+    if(other&&sigScore(rows,sch.sig)<sch.sig.length){fileIssues.push(fIssue("F2",`${fname} looks like the ${SCHEMA[other].label.toLowerCase()}`,`Upload it in slot ${SLOT[other]}.`));}
     else{const miss=sch.req.filter(f=>!best||best.h.map[f]==null).map(f=>sch.cols[f][0]);
       fileIssues.push(fIssue("F1",`${fname}: required columns not found`,"Missing: "+miss.join(", ")+". Columns are matched by header name in the first 20 rows; check the export layout."));}
     return{recs:[],meta,fileIssues}}
   const {sn,rows,h,r0}=best;meta.sheet=sn;meta.headerRow=r0+h.i+1;
-  const mp=h.map,recs=[];
+  const mp=h.map,recs=[],byShip={},sigs={};
   for(let i=h.i+1;i<rows.length;i++){const r=rows[i]||[];const g=f=>mp[f]==null?null:r[mp[f]];
     const keyVals=sch.req.map(g);if(keyVals.every(v=>v==null||T(v)===""))continue;
+    if(src=="S"){meta.rows++;const desc=T(g("desc"));const pl=(desc.match(/\d{3,}/g)||[]);
+      recs.push({id:"S:"+(r0+i+1),src,row:r0+i+1,dRaw:g("date"),d:parseDate(g("date")),desc,plate:pl[0]||"",equip:code(g("equip")),code:T(g("code"))});continue}
     if(T(g("ship"))===""&&T(g("route"))===""){meta.skipped=(meta.skipped||0)+1;continue}
     meta.rows++;
     const rec={src,row:r0+i+1,ship:code(g("ship")),dRaw:g("date"),d:parseDate(g("date")),route:T(g("route")),spi:T(g("spi")).toUpperCase()};
     if(src=="O"){rec.driver=code(g("driver"));rec.dname=T(g("dname"));rec.car2=T(g("car2"))}
-    else{rec.shty=T(g("shty")).toUpperCase();rec.vendor=T(g("vendor")).replace(/\s+/g," ");const o=num(g("ov"));rec.ov=o.bad?0:o.v;rec.ovBad=o.bad?T(g("ov")):null;rec.dname=T(g("dname"))}
-    rec.id=src+":"+(rec.ship||("row"+rec.row));recs.push(rec)}
+    else{rec.shty=T(g("shty")).toUpperCase();rec.vendor=T(g("vendor")).replace(/\s+/g," ");const o=num(g("ov"));rec.ov=o.bad?0:o.v;rec.ovBad=o.bad?T(g("ov")):null;rec.dname=T(g("dname"));
+      if(mp.net!=null){const n=num(g("net")),t=num(g("tax"));if(n.bad||t.bad)rec.invBad=T(n.bad?g("net"):g("tax"));else if(!n.blank)rec.inv={net:n.v,tax:t.v}}}
+    rec.id=src+":"+(rec.ship||("row"+rec.row));
+    if(src=="V"&&rec.ship){const sg=JSON.stringify(r);
+      if(byShip[rec.ship]){const a=byShip[rec.ship];
+        if(sigs[rec.ship].includes(sg)){a.dupRows=(a.dupRows||0)+1;continue}
+        sigs[rec.ship].push(sg);
+        if(a.route==rec.route&&a.vendor==rec.vendor&&a.d==rec.d&&a.shty==rec.shty&&a.spi==rec.spi){
+          a.drops=(a.drops||1)+1;a.rows=(a.rows||[a.row]).concat(rec.row);if(rec.inv){a.inv=a.inv||{net:0,tax:0};a.inv.net+=rec.inv.net;a.inv.tax+=rec.inv.tax}if(rec.invBad)a.invBad=rec.invBad;continue}
+        rec.conflict=a.id;rec.id+="#"+rec.row}
+      else{byShip[rec.ship]=rec;sigs[rec.ship]=[sg]}}
+    recs.push(rec)}
   meta.read=recs.length;
   return{recs,meta,fileIssues}}
 
@@ -357,7 +385,8 @@ const MS={
   "Calendar":{req:true,cols:{d:["date"],name:["holiday"],st:["status"]}},
   "SpPI Master":{req:true,cols:{code:["sppi"],temp:["temperaturedc"],load:["loadsingledouble"],pal:["pallets"],st:["status"]}},
   "Shipment Type Master":{req:true,cols:{code:["shty"],bucket:["costbucket"],desc:["description"]}},
-  "Truck Master":{req:true,cols:{plate:["plate"],temp:["temperaturedc"],plant:["plant"],active:["activeyn"],st:["status"],upd:["lastupdated"]}},
+  "Truck Master":{req:true,cols:{plate:["plate"],temp:["temperaturedc"],plant:["plant"],active:["activeyn"],st:["status"],upd:["lastupdated"]},opt:{equip:["sapequipment"]}},
+  "Stoppage Reasons":{req:false,cols:{code:["codetext"],cat:["category"],stop:["countsasstoppageyn"],st:["status"]}},
   "Driver Master":{req:true,cols:{code:["drivercode"],name:["drivername"],truck:["usualtruck"],active:["activeyn"],st:["status"],upd:["lastupdated"]}},
   "Owned Route Master":{req:true,cols:{route:["route"],w:["weightdays"],km:["rtkm"],i1:["incentivesingleegp"],i2:["incentivedoubleegp"],plant:["plantshuttleyn"],ist:["incentivestatus"],kst:["kmstatus"],upd:["lastupdated"]}},
   "Spot-Rent Route Master":{req:true,cols:{route:["route"],w:["weightdays"],km:["rtkm"],rd:["ratedryegptrip"],rc:["ratechilledegptrip"],from:["validfrom"],to:["validto"],sd:["ratestatusdry"],sc:["ratestatuschilled"],kst:["kmstatus"],upd:["lastupdated"]}},
@@ -367,7 +396,8 @@ const PARAMS={"Fuel price":["fuel","n"],"Fuel consumption":["kmL","n"],"Reefer f
   "Spot price list excludes VAT":["spotVat","yn"],"Rented rent VAT":["rentVat","yn"],"Working days per month target":["wdTarget","n"],
   "Weekly day off":["offDay","day"],"RE free trips per vendor per month":["reFree","n"],"Rented truck count rule":["truckRule","s"],
   "Rented fuel paid by Juhayna":["mrFuel","yn"],"Unmaintained trips":["unmaint","s"],"Owned fixed costs included":["ownFixed","yn"],
-  "Same-day points warning":["sameDay","n"],"Rate outlier tolerance":["outlier","n"],"Master stale after":["stale","n"],"Master version":["version","n"]};
+  "Same-day points warning":["sameDay","n"],"Rate outlier tolerance":["outlier","n"],"Master stale after":["stale","n"],"Master version":["version","n"],
+  "Spot cost source":["costSrc","s","Invoice when available"],"Invoice variance tolerance":["invTol","n",0.05]};
 const DAYS=["sunday","monday","tuesday","wednesday","thursday","friday","saturday"];
 const nn=v=>{const x=num(v);return x.blank||x.bad?null:x.v};
 const yn=v=>/^(y|yes|true|1|نعم)$/i.test(T(v));
@@ -382,16 +412,17 @@ function readMaster(wb,fname){
     const ws=wb.Sheets[name];if(!ws){if(def.req)mk("M8","B",`Master tab “${name}” is missing`,"Add the tab back (download current master for the layout).");tabs[name]=[];continue}
     const rows=XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:null,blankrows:true}),r0=ws["!ref"]?XLSX.utils.decode_range(ws["!ref"]).s.r:0;
     const sch={cols:def.cols,req:Object.keys(def.cols).slice(0,1)};
-    let hi=-1,map={};for(let i=0;i<Math.min(10,rows.length);i++){const m2={};(rows[i]||[]).forEach((c,j)=>{const h=hkey(c);for(const [f,al] of Object.entries(def.cols))if(m2[f]==null&&al.includes(h))m2[f]=j});
+    const allc={...def.cols,...(def.opt||{})};
+    let hi=-1,map={};for(let i=0;i<Math.min(10,rows.length);i++){const m2={};(rows[i]||[]).forEach((c,j)=>{const h=hkey(c);for(const [f,al] of Object.entries(allc))if(m2[f]==null&&al.includes(h))m2[f]=j});
       if(Object.keys(m2).length>Object.keys(map).length){map=m2;hi=i}}
     const missing=Object.keys(def.cols).filter(f=>map[f]==null);
     if(hi<0||missing.length){mk("M8","B",`Master tab “${name}”: columns not found`,"Missing: "+missing.map(f=>def.cols[f][0]).join(", "));tabs[name]=[];continue}
     tabs[name]=rows.slice(hi+1).map((r,k)=>{const o={_row:r0+hi+2+k};for(const [f,j] of Object.entries(map))o[f]=r[j];return o}).filter(o=>T(o[Object.keys(def.cols)[0]])!=="")}
-  const m={src:fname,P:{},hol:{},holSt:{},sppi:{},shty:{},trucks:{},drivers:{},oroutes:{},sroutes:{},contracts:{},alias:{},upd:null};
+  const m={src:fname,P:{},hol:{},holSt:{},sppi:{},shty:{},trucks:{},drivers:{},oroutes:{},sroutes:{},contracts:{},alias:{},stops:{},upd:null};
   // parameters
   const pv={};tabs["Parameters"].forEach(r=>pv[T(r.k)]=r.v);
-  for(const [k,[f,t]] of Object.entries(PARAMS)){const v=pv[k];
-    if(v==null||T(v)===""){mk("M8","B",`Parameter “${k}” is missing`,"Add it in the Parameters tab.");continue}
+  for(const [k,[f,t,dflt]] of Object.entries(PARAMS)){const v=pv[k];
+    if(v==null||T(v)===""){if(dflt!==undefined){m.P[f]=dflt;continue}mk("M8","B",`Parameter “${k}” is missing`,"Add it in the Parameters tab.");continue}
     if(t=="n"){const x=nn(v);if(x==null)mk("M8","B",`Parameter “${k}” is not a number`,"Value: "+T(v));m.P[f]=x}
     else if(t=="yn")m.P[f]=yn(v);else if(t=="day"){const i=DAYS.indexOf(T(v).toLowerCase());if(i<0)mk("M8","B",`Weekly day off “${T(v)}” not recognised`,"Use a day name, e.g. Friday.");m.P[f]=i<0?5:i}
     else m.P[f]=T(v)}
@@ -406,7 +437,11 @@ function readMaster(wb,fname){
     m.sppi[T(r.code).toUpperCase()]={temp:t=="C"?"C":"D",dbl:/^d/i.test(T(r.load)),pal:nn(r.pal),st:T(r.st)}});
   tabs["Shipment Type Master"].forEach(r=>{const b=T(r.bucket).toUpperCase();if(!["SPOT","MR","RE","NONE"].includes(b))mk("M8","B",`ShTy ${T(r.code)}: cost bucket “${T(r.bucket)}” not valid`,"Use SPOT, MR, RE or NONE (row "+r._row+").");
     m.shty[T(r.code).toUpperCase()]={bucket:b,desc:T(r.desc)}});
-  tabs["Truck Master"].forEach(r=>{m.trucks[code(r.plate)]={temp:T(r.temp).toUpperCase()=="C"?"C":"D",plant:T(r.plant),active:!/^n/i.test(T(r.active)),st:T(r.st),row:r._row}});
+  tabs["Truck Master"].forEach(r=>{m.trucks[code(r.plate)]={temp:T(r.temp).toUpperCase()=="C"?"C":"D",plant:T(r.plant),active:!/^n/i.test(T(r.active)),st:T(r.st),equip:code(r.equip),row:r._row}});
+  dup("Stoppage Reasons",r=>T(r.code),"code text");
+  const CATS=["On trip","Waiting at branch","Waiting at plant","Maintenance","License","Missing driver","Other"];
+  (tabs["Stoppage Reasons"]||[]).forEach(r=>{const c=T(r.cat);if(!CATS.includes(c))mk("M8","W",`Stoppage reason “${T(r.code)}”: category “${c}” not recognised`,"Use one of: "+CATS.join(", ")+" (row "+r._row+").");
+    m.stops[T(r.code)]={cat:CATS.includes(c)?c:"Other",stop:!/^n/i.test(T(r.stop)),st:T(r.st)}});
   tabs["Driver Master"].forEach(r=>{m.drivers[code(r.code)]={name:T(r.name),truck:code(r.truck),active:!/^n/i.test(T(r.active)),row:r._row}});
   tabs["Owned Route Master"].forEach(r=>{m.oroutes[norm(r.route)]={name:T(r.route),w:nn(r.w),km:nn(r.km),i1:nn(r.i1),i2:nn(r.i2),plant:yn(r.plant),ist:T(r.ist)||"Estimated",kst:T(r.kst)||"Estimated",row:r._row}});
   tabs["Spot-Rent Route Master"].forEach(r=>{const k=norm(r.route);(m.sroutes[k]=m.sroutes[k]||[]).push({name:T(r.route),w:nn(r.w),km:nn(r.km),rd:nn(r.rd),rc:nn(r.rc),
@@ -425,7 +460,8 @@ function readMaster(wb,fname){
 /* ================= resolve every record against master ================= */
 function routeKey(r,tbl){const k=norm(r.route);const a=M.alias[k];return a&&a.tbl==tbl?a.to:k}
 function resolve(r){
-  const x=r.x={};const sp=M.sppi[r.spi];x.sp=!!sp;x.temp=sp?sp.temp:null;x.dbl=sp?sp.dbl:false;
+  const x=r.x={};
+  if(r.src=="S"){x.truck=M.trucks[r.plate]||null;x.reason=M.stops[r.code]||null;x.cat=x.reason?x.reason.cat:"Unclassified";x.stop=x.reason?x.reason.stop:true;return}const sp=M.sppi[r.spi];x.sp=!!sp;x.temp=sp?sp.temp:null;x.dbl=sp?sp.dbl:false;
   if(r.src=="O"){
     const groups=(r.car2.match(/\d{3,}/g)||[]);
     if(!groups.length){x.plate="";x.plateWhy="unreadable"}
@@ -446,7 +482,9 @@ function resolve(r){
 const RULES={F1:"Required columns",F2:"Wrong file",F3:"Unreadable date",F4:"Duplicate shipment",F5:"Not a number",F6:"Blank key field",F7:"Date out of range",
   M1:"Truck not in master",M2:"Driver not in master",M3:"Vendor contract",M4:"Owned route incomplete",M5:"Spot-rent route incomplete",M6:"SpPI not in master",
   M7:"Shipment type not in master",M8:"Master data structure",X1:"Driver ≠ usual driver",X2:"Trip on a day off",X3:"Truck overloaded on one day",
-  X4:"Files cover different dates",X5:"Rate outlier",X6:"Estimated or stale master"};
+  X4:"Files cover different dates",X5:"Rate outlier",X6:"Estimated or stale master",X7:"Invoice vs rate card",X8:"RE invoiced inside free allowance",
+  S1:"Unreadable stoppage date",S2:"Stoppage truck not in master",S3:"Stoppage reason not in master",S4:"Stoppage on a day with a shipment",S5:"On trip without a shipment"};
+const useInv=()=>/^inv/i.test((M&&M.P.costSrc)||"");
 function fIssue(rule,title,detail){return{rule,sev:"B",title,detail,ids:[],ex:false}}
 function validate(){
   const iss=[];const by={};
@@ -459,19 +497,24 @@ function validate(){
   const all=[...DS.O,...DS.V];all.forEach(resolve);
   const today=new Date().toISOString().slice(0,10);
   // F4 duplicates
-  if(DS.legacy)add("F4","I","legacy","Shipment numbers not stored in this snapshot","Duplicate check (F4) runs on fresh uploads; this data was saved by the old dashboard.");
-  else{const seen={};all.forEach(r=>{if(!r.ship)return;const k=r.ship;if(seen[k]){r.dup=seen[k];add("F4","W","dup","Duplicate shipment numbers dropped","Kept the first occurrence of each shipment; later copies are not counted.",r,{ent:r.ship})}else seen[k]=r.id})}
-  const med={};["O","V"].forEach(s=>{const ds=DS[s].map(r=>r.d).filter(Boolean).sort();med[s]=ds.length?ds[Math.floor(ds.length/2)]:null});
+  if(all.some(r=>r.legacy))add("F4","I","legacy","Shipment numbers not stored in the old-format snapshot","Duplicate check (F4) runs on fresh uploads; part of this data was saved by the old dashboard.");
+  {const seen={};all.forEach(r=>{if(!r.ship)return;
+    if(r.dupRows)add("F4","W","rows","Exact duplicate rows dropped","Identical rows of the same shipment were counted once.",r,{ent:r.ship+" ×"+(r.dupRows+1)});
+    if(r.conflict){add("F4","W","conf","Same shipment number with different route, vendor, date or type","Both rows are kept as separate shipments; check the extract.",r,{ent:r.ship});return}
+    const k=r.src+"|"+r.ship;if(seen[k]){r.dup=seen[k];add("F4","W","dup","Duplicate shipment numbers dropped","Kept the first occurrence of each shipment; later copies are not counted.",r,{ent:r.ship})}else seen[k]=r.id})}
+  const isolated={};["O","V"].forEach(s=>{const ds=[...new Set(DS[s].map(r=>r.d).filter(Boolean))].sort(),gap=(a,b)=>Math.abs(new Date(a)-new Date(b))/864e5,iso=new Set();
+    ds.forEach((d,i)=>{const near=Math.min(i>0?gap(d,ds[i-1]):1e9,i<ds.length-1?gap(d,ds[i+1]):1e9);if(ds.length>1&&near>31)iso.add(d)});isolated[s]=d=>iso.has(d)});
   const active=all.filter(r=>!r.dup);
   active.forEach(r=>{const x=r.x,lbl=r.src=="O"?"owned":"spot/rent";
     // format
     if(!r.d)add("F3","B",r.src,`Unreadable date in the ${lbl} file`,"Dates must be Excel dates, dd/mm/yyyy or yyyy-mm-dd. These rows can't be placed in a period.",r,{ex:1,ent:T(r.dRaw)||"(blank)"});
     if(r.ovBad!=null)add("F5","B","ov","Overnight cost is not a number","Fix the value in the extract or exclude the shipment.",r,{ex:1,ent:r.ovBad});
-    if(!r.ship&&!DS.legacy)add("F6","W","ship","Blank shipment number","Counted, but duplicates of this shipment can't be detected.",r,{ent:"row "+(r.row||"—")});
+    if(r.invBad!=null)add("F5","B","inv","Net value or tax amount is not a number","Fix the value in the extract or exclude the shipment.",r,{ex:1,ent:r.invBad});
+    if(!r.ship&&!r.legacy)add("F6","W","ship","Blank shipment number","Counted, but duplicates of this shipment can't be detected.",r,{ent:"row "+(r.row||"—")});
     if(r.src=="O"&&!r.driver)add("M2","W","blank","Blank driver code","Counted in totals with a flag (decision 1); incentive can't be assigned to a driver.",r,{ent:"row "+(r.row||"—")});
     const blanks=r.src=="O"?[["route",r.route],["SpPI",r.spi]]:[["route",r.route],["vendor",r.vendor],["ShTy",r.shty],["SpPI",r.spi]];
     blanks.filter(b=>!b[1]).forEach(b=>add("F6","B",r.src+b[0],`Blank ${b[0]} in the ${lbl} file`,"A shipment without this field can't be matched or priced.",r,{ex:1,ent:"row "+r.row}));
-    if(r.d&&(r.d>today||(med[r.src]&&Math.abs((new Date(r.d)-new Date(med[r.src]))/864e5)>62)))add("F7","W",r.src,`Date far from the rest of the ${lbl} file`,"Probably a typo in the date.",r,{ent:r.d});
+    if(r.d&&(r.d>today||r.d<"2020-01-01"||isolated[r.src](r.d)))add("F7","W",r.src,`Date in the future or far from every other shipment in the ${lbl} file`,"More than 31 days from the nearest other shipment date, or after today. Probably a typo.",r,{ent:r.d});
     if(!r.spi)return;
     if(!x.sp)add("M6","B",r.spi,`SpPI code ${r.spi} is not in SpPI Master`,"Temperature and single/double can't be determined. Add the code to SpPI Master.",r,{ex:1,fix:{tab:"SpPI Master",row:[r.spi,"","","","New",""]}});
     if(r.src=="O"){
@@ -489,22 +532,40 @@ function validate(){
       if(x.bucket=="NONE")return;
       if(r.vendor){
         if(x.mode=="MR"&&!x.con)add("M3","B","mr","Rented (MR) trips without a valid vendor contract","Rent can't be calculated. Add or extend the contract in Vendor Contracts.",r,{ex:1,ent:r.vendor,fix:{tab:"Vendor Contracts"}});
+        else if(x.mode=="MR"&&x.sp&&!(x.temp=="C"?x.con.rc:x.con.rd))add("M3","B","rent","Rented (MR) trips under a contract with no rent for that temperature","Fill the dry/chilled monthly rent in Vendor Contracts.",r,{ex:1,ent:r.vendor+(x.temp=="C"?" (chilled)":" (dry)")});
         else if(!x.vendorKnown)add("M3","W","new","Vendors not in Vendor Contracts","Spot trips are priced from the route rate; add the vendor so it's maintained.",r,{ent:r.vendor,fix:{tab:"Vendor Contracts"}})}
-      if(r.route&&x.mode){
-        if(!x.srAny)add("M5","B","miss","Vendor routes not in Spot-Rent Route Master","Can't be priced or given points. Add the route (or an alias).",r,{ex:1,ent:r.route,fix:{tab:"Spot-Rent Route Master"}});
-        else if(!x.sr)add("M5","B","date","No route rate valid on the trip date","Check Valid from / Valid to.",r,{ex:1,ent:r.route+" @ "+r.d});
-        else{if(x.sr.w==null)add("M5","B","w","Vendor routes without weight","Points can't be calculated.",r,{ex:1,ent:x.sr.name});
-          if(x.mode!="MR"&&x.sp&&!x.rate)add("M5","B","rate","Vendor routes without a rate for the trip's temperature","Spot/RE freight can't be priced.",r,{ex:1,ent:x.sr.name+(x.temp=="C"?" (chilled)":" (dry)")});
+      if(r.route&&x.mode){const inv=!!r.inv&&useInv()&&x.mode!="MR";
+        if(!x.srAny){if(inv)add("M5","W","missinv","Vendor routes not in Spot-Rent Route Master (priced from invoice)","Cost comes from the SAP invoice. Weight and km are unknown, so these shipments are left out of points and cost per point. Add the route to master.",r,{ent:r.route,fix:{tab:"Spot-Rent Route Master"}});
+          else add("M5","B","miss","Vendor routes not in Spot-Rent Route Master","Can't be priced or given points. Add the route (or an alias).",r,{ex:1,ent:r.route,fix:{tab:"Spot-Rent Route Master"}})}
+        else if(!x.sr){if(inv)add("M5","W","dateinv","No route rate valid on the trip date (priced from invoice)","Check Valid from / Valid to; the invoice amount is used.",r,{ent:r.route+" @ "+r.d});
+          else add("M5","B","date","No route rate valid on the trip date","Check Valid from / Valid to.",r,{ex:1,ent:r.route+" @ "+r.d})}
+        else{if(x.sr.w==null){if(inv)add("M5","W","winv","Vendor routes without weight (priced from invoice)","Left out of points and cost per point.",r,{ent:x.sr.name});else add("M5","B","w","Vendor routes without weight","Points can't be calculated.",r,{ex:1,ent:x.sr.name})}
+          if(x.mode!="MR"&&x.sp&&!x.rate&&!inv)add("M5","B","rate","Vendor routes without a rate for the trip's temperature","Spot/RE freight can't be priced.",r,{ex:1,ent:x.sr.name+(x.temp=="C"?" (chilled)":" (dry)")});
+          if(r.inv&&x.rate&&x.mode!="MR"){r.var=r.inv.net/x.rate-1;if(Math.abs(r.var)>M.P.invTol)add("X7","W","x7",`Invoice differs from the rate card by more than ${Math.round(M.P.invTol*100)}%`,"Compared with the rate valid on the trip date for the shipment's temperature. Check the invoice or the master rate.",r,{ent:x.sr.name+(x.temp=="C"?" (C) ":" (D) ")+(r.var>0?"over":"under")})}
           if(x.mode=="MR"&&!x.km)add("M5","B","km","Vendor routes without RT km","Rented-truck fuel can't be calculated.",r,{ex:1,ent:x.sr.name})}}
     }
     if(r.d&&!isWork(r.d))add("X2","I","x2","Trips on a Friday or public holiday","Counted as output; days off don't count as working days.",r,{ent:r.d+(M.hol[r.d]?" "+M.hol[r.d]:"")});
   });
+  // X8 RE invoiced inside the free allowance
+  {const g={};active.filter(r=>r.src=="V"&&r.x.mode=="RE"&&r.d&&r.inv).forEach(r=>{const k=r.vendor+"|"+monthOf(r.d);(g[k]=g[k]||[]).push(r)});
+    let claim=0;Object.values(g).forEach(l=>{l.sort((a,b)=>a.d<b.d?-1:a.d>b.d?1:(a.ship<b.ship?-1:1));l.slice(0,M.P.reFree).forEach(r=>{if(r.inv.net>0){claim+=r.inv.net+r.inv.tax;add("X8","W","x8",`RE trips invoiced inside the free allowance (first ${M.P.reFree} per vendor per month)`,"",r,{ent:r.vendor+" "+monthOf(r.d)})}})});
+    const it=iss.find(i=>i.rule=="X8");if(it)it.detail=`Claimable from vendors: ${egp(claim)} EGP incl. VAT. Either vendors are not applying the allowance, or the Parameters rule needs changing.`}
+  // stoppage log (S1-S5)
+  const busyO={},shipDay={};DS.O.filter(r=>!r.dup&&r.d&&r.x.plate).forEach(r=>{const n=Math.max(1,Math.ceil((r.x.w||0)-1e-9));shipDay[r.x.plate+"|"+r.d]=1;for(let i=0;i<n;i++)busyO[r.x.plate+"|"+addD(r.d,i)]=1});
+  const cvO=coverage().O;
+  (DS.S||[]).forEach(r=>{resolve(r);
+    if(!r.d){add("S1","B","s1","Unreadable date in the stoppage log","These rows can't be placed on a day.",r,{ex:1,ent:T(r.dRaw)||"(blank)"});return}
+    if(!r.x.truck)add("S2","W","s2","Stoppage-log trucks not in Truck Master","Add them to Truck Master (with SAP equipment number).",r,{ent:r.desc+(r.equip?" · eq "+r.equip:""),fix:{tab:"Truck Master"}});
+    if(!r.x.reason)add("S3","W","s3","Stoppage reason codes not in Stoppage Reasons","Shown as Unclassified until you map them to a category.",r,{ent:r.code,fix:{tab:"Stoppage Reasons",row:[r.code,"","Y","New",""]}});
+    if(cvO&&r.d>=cvO[0]&&r.d<=cvO[1]){const k=r.plate+"|"+r.d;
+      if(r.x.stop&&shipDay[k])add("S4","W","s4","Stoppage logged on a day the truck starts a shipment","Either the log or the shipment is wrong.",r,{ent:r.plate+" "+r.d+" "+r.code});
+      if(r.x.reason&&!r.x.stop&&!busyO[k])add("S5","I","s5","Truck logged ‘on trip’ but no owned shipment covers that day","Checked inside the owned shipments' dates only.",r,{ent:r.plate+" "+r.d})}});
   // X3 same-day overload
   const day={};DS.O.filter(r=>!r.dup&&r.d&&r.x.plate&&r.x.w!=null).forEach(r=>{const k=r.x.plate+"|"+r.d;(day[k]=day[k]||[]).push(r)});
   Object.entries(day).forEach(([k,list])=>{if(sum(list,r=>r.x.w)>M.P.sameDay)list.forEach(r=>add("X3","W","x3",`One truck starts more than ${M.P.sameDay} points on the same day`,"Possible duplicate or wrong plate.",r,{ent:k.replace("|"," on ")}))});
   // X4 coverage
   const cov=coverage();
-  if(cov.O&&cov.V&&(cov.O[0]!=cov.V[0]||cov.O[1]!=cov.V[1]))add("X4","W","x4","Files cover different dates",`Owned ${cov.O[0]} → ${cov.O[1]} · spot/rent ${cov.V[0]} → ${cov.V[1]}. Each is measured on its own covered dates.`);
+  if(cov.O&&cov.V&&(cov.O[0]!=cov.V[0]||cov.O[1]!=cov.V[1]))add("X4","W","x4","Files cover different dates",`Owned ${cov.O[0]} → ${cov.O[1]} · spot/rent ${cov.V[0]} → ${cov.V[1]}${cov.S?` · stoppages ${cov.S[0]} → ${cov.S[1]}`:""}. Each is measured on its own covered dates; totals mixing them cover different periods.`);
   // X5 outliers among routes used
   const used=new Set(DS.V.filter(r=>r.x&&r.x.sr).map(r=>r.x.sr));const cand=[...used].filter(s=>s.km&&s.rd);
   [...used].forEach(s=>{const lbl=s.name;
@@ -522,7 +583,7 @@ function finish(iss){
 function openOf(i){if(i.sev!="B")return i.ids.length?i.ids.length:1;if(!i.ex)return 1;return i.ids.filter(id=>!EXCL[id]).length}
 function refreshGate(){H.blockers=H.iss.filter(i=>i.sev=="B"&&openOf(i)>0).length;H.warns=H.iss.filter(i=>i.sev=="W").length;H.infos=H.iss.filter(i=>i.sev=="I").length;
   H.ok=!!M&&(DS.O.length+DS.V.length>0)&&H.blockers==0}
-function coverage(){const c={};["O","V"].forEach(s=>{const ds=DS[s].filter(r=>r.d&&!EXCL[r.id]&&!r.dup).map(r=>r.d).sort();c[s]=ds.length?[ds[0],ds[ds.length-1]]:null});return c}
+function coverage(){const c={};["O","V","S"].forEach(s=>{const ds=(DS[s]||[]).filter(r=>r.d&&!EXCL[r.id]&&!r.dup).map(r=>r.d).sort();c[s]=ds.length?[ds[0],ds[ds.length-1]]:null});return c}
 const flagged=r=>r.src=="O"?(!r.x.truck||(r.driver&&!r.x.drv)):!r.x.vendorKnown;
 
 /* ================= cost engine ================= */
@@ -536,13 +597,17 @@ function prepCost(){
   DS.O.filter(r=>r.ok).forEach(r=>{const x=r.x,c=x.temp=="C",ro=x.ro;
     r.L.push(line("Fuel",fuelOf(x.km,c),fuelTxt(x.km,c),ro.kst!="Confirmed",`Owned Route Master row ${ro.row}`));
     r.L.push(line("Incentive",x.inc,`${x.dbl?"double":"single"} incentive for ${ro.name}`,ro.ist!="Confirmed",`Owned Route Master row ${ro.row}`))});
-  DS.V.filter(r=>r.ok&&r.x.mode=="SPOT").forEach(r=>{const x=r.x,est=x.rateSt!="Confirmed",src=`Spot-Rent Route Master row ${x.sr.row}`;
+  const inv=useInv(),invTxt=r=>`SAP invoice${r.drops>1?` (${r.drops} drop rows)`:""}${r.x.rate?` · rate card ${egp(r.x.rate)} (${r.var>=0?"+":""}${(r.var*100).toFixed(1)}%)`:" · no rate card"}`;
+  DS.V.filter(r=>r.ok&&r.x.mode=="SPOT").forEach(r=>{const x=r.x;
+    if(inv&&r.inv){r.L.push(line("Freight",r.inv.net,invTxt(r),false,"Spot/rent extract row "+(r.rows||[r.row]).join("+")));r.L.push(line("VAT",r.inv.tax,"tax amount on the invoice",false,"Spot/rent extract"))}
+    else{const est=x.rateSt!="Confirmed",src=`Spot-Rent Route Master row ${x.sr.row}`;
     r.L.push(line("Freight",x.rate,`${x.temp=="C"?"chilled":"dry"} rate ${x.sr.name}`,est,src));
-    if(P.spotVat)r.L.push(line("VAT",x.rate*P.vat,`freight × ${Math.round(P.vat*100)}%`,est,"Parameters"));
+    if(P.spotVat)r.L.push(line("VAT",x.rate*P.vat,`freight × ${Math.round(P.vat*100)}%`,est,"Parameters"))}
     if(r.ov)r.L.push(line("Overnight",r.ov,"overnight cost on the shipment",false,"Spot/rent extract row "+r.row))});
   const reG={};DS.V.filter(r=>r.ok&&r.x.mode=="RE").forEach(r=>{const k=r.vendor+"|"+monthOf(r.d);(reG[k]=reG[k]||[]).push(r)});
   Object.values(reG).forEach(list=>{list.sort((a,b)=>a.d<b.d?-1:a.d>b.d?1:(a.ship<b.ship?-1:1));
     list.forEach((r,i)=>{r.reN=i+1;const x=r.x;
+      if(inv&&r.inv){r.reFree=i<P.reFree;r.L.push(line("Freight",r.inv.net,`RE trip ${i+1} of ${monthOf(r.d)} — ${invTxt(r)}${i<P.reFree?" — inside free allowance: claimable":""}`,false,"Spot/rent extract row "+(r.rows||[r.row]).join("+")));r.L.push(line("VAT",r.inv.tax,"tax amount on the invoice",false,"Spot/rent extract"));return}
       if(i<P.reFree){r.reFree=true;r.L.push(line("Freight",0,`RE trip ${i+1} of ${monthOf(r.d)} — free (first ${P.reFree})`,false,"Parameters"))}
       else{const est=x.rateSt!="Confirmed";r.L.push(line("Freight",x.rate,`RE trip ${i+1} of ${monthOf(r.d)} — billable at ${x.temp=="C"?"chilled":"dry"} rate ${x.sr.name}`,est,`Spot-Rent Route Master row ${x.sr.row}`));
         if(P.spotVat)r.L.push(line("VAT",x.rate*P.vat,`freight × ${Math.round(P.vat*100)}%`,est,"Parameters"))}})});
@@ -621,16 +686,16 @@ function renderHealth(){
    <span class="acts"><button class="btn" type="button" id="fixBtn">⬇ Fix list (Excel)</button><button class="btn pri" type="button" id="calcBtn" ${H.ok?"":"disabled"}>${DIRTY?"Calculate & share":"Open cost"}</button></span>`;
   $("fixBtn").onclick=exportFixList;$("calcBtn").onclick=()=>{if(DIRTY)pushData();setScreen("cost")};
   const fc=f=>{if(!f)return"";const range=(()=>{const ds=DS[f.src].map(r=>r.d).filter(Boolean).sort();return ds.length?ds[0]+" → "+ds[ds.length-1]:"—"})();
-    return`<div class="file"><b>${f.src=="O"?"Owned shipments":"Spot/rent extract"}</b><span class="mono">${esc(f.file)}</span><span>${f.legacy?"saved snapshot (old format)":`sheet “${esc(f.sheet)}”, header on row ${f.headerRow}`}</span><span>${(f.read||0).toLocaleString()} shipments · ${range}${f.skipped?` · ${f.skipped} summary row${f.skipped>1?"s":""} skipped`:""}</span></div>`};
-  $("hFiles").innerHTML=fc(DS.files.O)+fc(DS.files.V)+(M?`<div class="file"><b>Master data v2</b><span class="mono">${esc(M.src)}</span><span>${Object.keys(M.oroutes).length} owned routes · ${Object.keys(M.sroutes).length} spot routes · ${Object.keys(M.contracts).length} vendors</span><span>${Object.keys(M.trucks).length} trucks · ${Object.keys(M.drivers).length} drivers · ${Object.keys(M.hol).length} holidays</span></div>`:"");
-  const recById={};DS.O.concat(DS.V).forEach(r=>recById[r.id]=r);
+    return`<div class="file"><b>${{O:"Owned shipments",V:"Spot/rent extract",S:"Truck stoppage log"}[f.src]}</b><span class="mono">${esc(f.file)}</span><span>${f.legacy?"saved snapshot (old format)":`sheet “${esc(f.sheet)}”, header on row ${f.headerRow}`}</span><span>${(f.read||0).toLocaleString()} shipments · ${range}${f.skipped?` · ${f.skipped} summary row${f.skipped>1?"s":""} skipped`:""}</span></div>`};
+  $("hFiles").innerHTML=fc(DS.files.O)+fc(DS.files.V)+fc(DS.files.S)+(M?`<div class="file"><b>Master data v2</b><span class="mono">${esc(M.src)}</span><span>${Object.keys(M.oroutes).length} owned routes · ${Object.keys(M.sroutes).length} spot routes · ${Object.keys(M.contracts).length} vendors</span><span>${Object.keys(M.trucks).length} trucks · ${Object.keys(M.drivers).length} drivers · ${Object.keys(M.hol).length} holidays · ${Object.keys(M.stops).length} stoppage reasons</span></div>`:"");
+  const recById={};DS.O.concat(DS.V,DS.S||[]).forEach(r=>recById[r.id]=r);
   $("hIssues").innerHTML=H.iss.map((i,k)=>{const open=openOf(i),done=i.sev=="B"&&i.ex&&open==0;
     const ents=Object.entries(i.ents||{}).sort((a,b)=>b[1]-a[1]);
     const cnt=i.ids.length?`${i.ids.length.toLocaleString()} shipment${i.ids.length>1?"s":""}`:ents.length?`${ents.length} item${ents.length>1?"s":""}`:"";
     const sample=i.ids.slice(0,40).map(id=>recById[id]).filter(Boolean);
     return`<details class="issue ${done?"done":""}" ${k<3&&i.sev=="B"?"open":""}><summary><span class="pill ${i.sev=="B"?"p-b":i.sev=="W"?"p-w":"p-i"}">${i.rule}</span><span class="t">${esc(i.title)}${done?" — excluded":""}</span><span class="cnt">${cnt}</span><span class="d">${esc(i.detail)}</span></summary>
       <div class="body">${ents.length?`<div style="display:flex;flex-wrap:wrap;gap:6px">${ents.slice(0,40).map(([e,c])=>`<span class="pill p-i">${esc(e)}${c>1?" · "+c:""}</span>`).join("")}${ents.length>40?`<span class="muted">+${ents.length-40} more</span>`:""}</div>`:""}
-      ${sample.length?`<div class="tbl tscroll" style="max-height:220px"><table><tr><th>File</th><th>Row</th><th>Shipment</th><th>Date</th><th>Route</th><th>${i.ids.length&&recById[i.ids[0]]&&recById[i.ids[0]].src=="O"?"Truck · driver":"Vendor · ShTy"}</th><th>SpPI</th></tr>${sample.map(r=>`<tr><td>${r.src=="O"?"Owned":"Spot/rent"}</td><td>${r.row||"—"}</td><td class="mono">${esc(r.ship)||"—"}</td><td>${r.d||esc(T(r.dRaw))||"—"}</td><td>${esc(r.route)}</td><td>${r.src=="O"?esc(r.car2)+" · "+esc(r.driver):esc(r.vendor)+" · "+esc(r.shty)}</td><td>${esc(r.spi)}</td></tr>`).join("")}</table></div>${i.ids.length>40?`<span class="muted">Showing 40 of ${i.ids.length}. The fix list has all rows.</span>`:""}`:""}
+      ${sample.length?`<div class="tbl tscroll" style="max-height:220px"><table><tr><th>File</th><th>Row</th><th>Shipment</th><th>Date</th><th>Route / reason</th><th>${{O:"Truck · driver",V:"Vendor · ShTy",S:"Truck · equipment"}[sample[0].src]}</th><th>SpPI / invoice</th></tr>${sample.map(r=>`<tr><td>${{O:"Owned",V:"Spot/rent",S:"Stoppages"}[r.src]}</td><td>${r.row||"—"}</td><td class="mono">${esc(r.ship)||"—"}</td><td>${r.d||esc(T(r.dRaw))||"—"}</td><td>${esc(r.src=="S"?r.code:r.route)}</td><td>${r.src=="O"?esc(r.car2)+" · "+esc(r.driver):r.src=="S"?esc(r.desc)+" · "+esc(r.equip):esc(r.vendor)+" · "+esc(r.shty)}</td><td>${esc(r.spi||"")}${r.inv?" · "+egp(r.inv.net):""}${r.var!=null?` (${r.var>=0?"+":""}${(r.var*100).toFixed(1)}%)`:""}</td></tr>`).join("")}</table></div>${i.ids.length>40?`<span class="muted">Showing 40 of ${i.ids.length}. The fix list has all rows.</span>`:""}`:""}
       ${i.sev=="B"&&i.ex?`<span>${open?`<button class="btn sm" type="button" data-ex="${k}">Exclude ${open} shipment${open>1?"s":""} from cost and KPIs</button>`:`<button class="btn sm" type="button" data-unex="${k}">Undo exclusion</button>`}</span>`:i.sev=="B"?`<span class="muted">Fix this in the file or master and upload again; it can't be excluded.</span>`:""}
       </div></details>`}).join("")||`<div class="gate">No issues found.</div>`;
   document.querySelectorAll("[data-ex]").forEach(bt=>bt.onclick=()=>{const i=H.iss[+bt.dataset.ex];i.ids.forEach(id=>EXCL[id]=i.rule+" · "+i.title);DIRTY=true;afterExclusionChange()});
@@ -646,14 +711,17 @@ function renderCost(V){
   const all=spotT+reT+mrT+ownFuel+ownInc;
   const pts=a=>sum(a,r=>r.x.w||0);
   const sP=pts(V.spot),mP=pts(V.mr),oP=pts(V.ow);
+  const spotW=V.spot.filter(r=>r.x.w!=null),spotPP=sum(spotW,costOf);
+  const cn=$("covNote");cn.hidden=!(V.oR&&V.vR&&(V.oR[0]!=V.vR[0]||V.oR[1]!=V.vR[1]));
+  if(!cn.hidden)cn.innerHTML=`<span><b>Different periods in this total.</b> Owned data covers ${V.oR[0]} → ${V.oR[1]}; spot/rent covers ${V.vR[0]} → ${V.vR[1]}. Set From/To inside both for a like-for-like comparison.</span>`;
   $("costKpis").innerHTML=kpi(kEGP(all),"Total spend",`${V.vwd.length} working days (spot/rent) · EGP`,"total")+
-    kpi(kEGP(spotT),"Spot",`${V.spot.length.toLocaleString()} trips · incl. VAT`)+
+    kpi(kEGP(spotT),"Spot",`${V.spot.length.toLocaleString()} trips · ${V.spot.filter(r=>r.inv&&useInv()).length.toLocaleString()} from invoices · incl. VAT`)+
     kpi(kEGP(reT),"Returns (RE)",`${V.re.filter(r=>!r.reFree).length} billable of ${V.re.length}`)+
     kpi(kEGP(mrT),"Rented (MR)",`${sum(V.rent,x=>x.trucks)} truck-months · rent+VAT+fuel`)+
     kpi(kEGP(ownFuel),"Owned fuel",`${egp(sum(V.ow,r=>r.x.km))} km`)+
     kpi(kEGP(ownInc),"Owned incentive",`${V.ow.length.toLocaleString()} trips`);
-  const rows=[["Spot",sP?spotT/sP:0,"--c-spot"],["Rented",mP?mrT/mP:0,"--c-mr"],["Owned",oP?(ownFuel+ownInc)/oP:0,"--c-own"]];const mx=Math.max(...rows.map(r=>r[1]),1);
-  $("cpp").innerHTML=rows.map(([l,v,c])=>`<div class="cpp-row"><span>${l}</span><div class="track"><div class="fill" style="width:${(v/mx*100).toFixed(1)}%;background:var(${c})"></div></div><span class="num"><b>${egp(v)}</b></span></div>`).join("")+`<span class="sub">EGP per point · scale 0–${egp(mx)}</span>`;
+  const rows=[["Spot",sP?spotPP/sP:null,"--c-spot"],["Rented",mP?mrT/mP:null,"--c-mr"],["Owned",oP?(ownFuel+ownInc)/oP:null,"--c-own"]];const mx=Math.max(...rows.map(r=>r[1]||0),1);
+  $("cpp").innerHTML=rows.map(([l,v,c])=>`<div class="cpp-row"><span>${l}</span><div class="track"><div class="fill" style="width:${((v||0)/mx*100).toFixed(1)}%;background:var(${c})"></div></div><span class="num">${v==null?'<span class="muted">no data</span>':`<b>${egp(v)}</b>`}</span></div>`).join("")+`<span class="sub">EGP per point · scale 0–${egp(mx)}</span>`;
   const parts=[["Spot",spotT,"--c-spot"],["Returns",reT,"--c-re"],["Rented",mrT,"--c-mr"],["Owned fuel",ownFuel,"--c-own"],["Owned incentive",ownInc,"--c-inc"]];
   $("mixBar").innerHTML=parts.map(([l,v,c])=>`<div title="${l}" style="width:${all?(v/all*100):0}%;background:var(${c})"></div>`).join("");
   $("mixKeys").innerHTML=parts.map(([l,v,c])=>`<span><i style="background:var(${c})"></i>${l} ${all?(v/all*100).toFixed(1):0}%</span>`).join("");
@@ -664,12 +732,24 @@ function renderCost(V){
   $("tRent").innerHTML=`<tr><th>Vendor</th><th>Month</th><th class="num">MR trips</th><th class="num">Points</th><th class="num">Working days</th><th class="num">Truck-eq</th><th class="num">Trucks D/C</th><th class="num">Rent</th><th class="num">VAT</th><th class="num">Fuel</th><th class="num">Total</th></tr>`+
     V.rent.map(x=>`<tr><td>${esc(x.vendor)}${x.est?'<span class="est">est</span>':""}${M.contracts[x.vendor]?"":'<span class="flag">new</span>'}</td><td>${x.month}</td><td class="num">${x.recs.length}</td><td class="num">${x.pts.toFixed(1)}</td><td class="num">${x.wd}/${x.wdM}</td><td class="num">${x.eq.toFixed(2)}</td><td class="num"><b>${x.trucks}</b> ${x.trD}/${x.trC}</td><td class="num">${egp(x.rent)}</td><td class="num">${egp(x.vat)}</td><td class="num">${egp(x.fuel)}</td><td class="num"><b>${egp(x.total)}</b></td></tr>`).join("")+
     `<tr class="tot"><td>Total</td><td></td><td class="num">${V.mr.length}</td><td class="num">${mP.toFixed(1)}</td><td></td><td class="num">${sum(V.rent,x=>x.eq).toFixed(2)}</td><td class="num">${sum(V.rent,x=>x.trucks)}</td><td class="num">${egp(sum(V.rent,x=>x.rent))}</td><td class="num">${egp(sum(V.rent,x=>x.vat))}</td><td class="num">${egp(sum(V.rent,x=>x.fuel))}</td><td class="num">${egp(mrT)}</td></tr>`;
-  $("reFreeN").textContent=P.reFree;
+  $("spotNote").textContent=useInv()?`Freight and VAT from the SAP invoice where the extract has one (otherwise route rate + ${Math.round(P.vat*100)}% VAT). RE: the first ${P.reFree} per vendor per month should be free — “RE in allowance” counts those, and in invoice mode they are claimable.`:`Spot freight at route rate (+${Math.round(P.vat*100)}% VAT) + overnight cost. RE: first ${P.reFree} per vendor per calendar month free, then route rate + VAT.`;
+  if(!V.rent.length)$("tRent").innerHTML=`<tr><td class="muted">No rented (MR) shipments in the loaded spot/rent extract for this period.</td></tr>`;
+  // invoices vs rate card
+  const inv=V.spot.concat(V.re).filter(r=>r.inv),withRate=inv.filter(r=>r.x.rate);
+  const iN=sum(withRate,r=>r.inv.net),rN=sum(withRate,r=>r.x.rate),out=withRate.filter(r=>Math.abs(r.var)>P.invTol);
+  const claim=sum(V.re.filter(r=>r.inv&&r.reFree),r=>r.inv.net+r.inv.tax);
+  $("invSum").innerHTML=inv.length?`<b>${inv.length.toLocaleString()}</b> of ${(V.spot.length+V.re.length).toLocaleString()} spot/RE shipments carry an invoice. Where a rate card exists: invoiced <b>${egp(iN)}</b> vs rate card <b>${egp(rN)}</b> (${rN?((iN/rN-1)*100).toFixed(1):0}%). <b>${out.length.toLocaleString()}</b> outside ±${Math.round(P.invTol*100)}%. RE inside the free allowance: <b>${egp(claim)}</b> EGP claimable.`:"No invoice amounts in the loaded extract (rate card used).";
+  const bm={};withRate.forEach(r=>{const o=bm[monthOf(r.d)]=bm[monthOf(r.d)]||{n:0,i:0,r:0,o:0};o.n++;o.i+=r.inv.net;o.r+=r.x.rate;if(Math.abs(r.var)>P.invTol)o.o++});
+  $("tInvMonth").innerHTML=`<tr><th>Month</th><th class="num">Shipments</th><th class="num">Invoiced net</th><th class="num">Rate card</th><th class="num">Difference</th><th class="num">Outside ±${Math.round(P.invTol*100)}%</th></tr>`+
+    Object.entries(bm).sort().map(([m,o])=>`<tr><td>${m}</td><td class="num">${o.n.toLocaleString()}</td><td class="num">${egp(o.i)}</td><td class="num">${egp(o.r)}</td><td class="num ${Math.abs(o.i/o.r-1)>P.invTol?"wrn":""}">${((o.i/o.r-1)*100).toFixed(1)}%</td><td class="num">${o.o}</td></tr>`).join("")||`<tr><td class="muted">No invoiced shipments with a rate card in this period.</td></tr>`;
+  const br={};withRate.forEach(r=>{const k=r.x.sr.name+" · "+(r.x.temp=="C"?"chilled":"dry");const o=br[k]=br[k]||{n:0,i:0,r:0,est:r.x.rateSt!="Confirmed"};o.n++;o.i+=r.inv.net;o.r+=r.x.rate});
+  $("tInvRoute").innerHTML=`<tr><th>Route</th><th class="num">Shipments</th><th class="num">Invoiced</th><th class="num">Rate card</th><th class="num">Difference</th></tr>`+
+    Object.entries(br).sort((a,b)=>Math.abs(b[1].i-b[1].r)-Math.abs(a[1].i-a[1].r)).slice(0,15).map(([k,o])=>`<tr><td>${esc(k)}${o.est?'<span class="est">est</span>':""}</td><td class="num">${o.n}</td><td class="num">${egp(o.i)}</td><td class="num">${egp(o.r)}</td><td class="num ${Math.abs(o.i/o.r-1)>P.invTol?"wrn":""}">${egp(o.i-o.r)} (${((o.i/o.r-1)*100).toFixed(1)}%)</td></tr>`).join("");
   const bv={};V.spot.concat(V.re).forEach(r=>{const o=bv[r.vendor]=bv[r.vendor]||{st:0,fr:0,vat:0,ov:0,re:0,reF:0,reC:0};
     const L=linesOf(r);if(r.x.mode=="SPOT"){o.st++;o.fr+=sum(L.filter(l=>l.k=="Freight"),l=>l.a);o.vat+=sum(L.filter(l=>l.k=="VAT"),l=>l.a);o.ov+=sum(L.filter(l=>l.k=="Overnight"),l=>l.a)}
     else{o.re++;if(r.reFree)o.reF++;o.reC+=sum(L,l=>l.a)}});
   const bvE=Object.entries(bv).map(([k,o])=>({k,...o,t:o.fr+o.vat+o.ov+o.reC})).sort((a,b)=>b.t-a.t);
-  $("tSpot").innerHTML=`<tr><th>Vendor</th><th class="num">Spot trips</th><th class="num">Freight</th><th class="num">VAT</th><th class="num">Overnight</th><th class="num">RE trips</th><th class="num">RE free</th><th class="num">RE cost</th><th class="num">Total</th></tr>`+
+  $("tSpot").innerHTML=`<tr><th>Vendor</th><th class="num">Spot trips</th><th class="num">Freight</th><th class="num">VAT</th><th class="num">Overnight</th><th class="num">RE trips</th><th class="num">RE in allowance</th><th class="num">RE cost</th><th class="num">Total</th></tr>`+
     bvE.map(o=>`<tr><td>${esc(o.k)}${M.contracts[o.k]?"":'<span class="flag">new</span>'}</td><td class="num">${o.st}</td><td class="num">${egp(o.fr)}</td><td class="num">${egp(o.vat)}</td><td class="num">${egp(o.ov)}</td><td class="num">${o.re}</td><td class="num">${o.reF}</td><td class="num">${egp(o.reC)}</td><td class="num"><b>${egp(o.t)}</b></td></tr>`).join("")+
     `<tr class="tot"><td>Total</td><td class="num">${sum(bvE,o=>o.st)}</td><td class="num">${egp(sum(bvE,o=>o.fr))}</td><td class="num">${egp(sum(bvE,o=>o.vat))}</td><td class="num">${egp(sum(bvE,o=>o.ov))}</td><td class="num">${sum(bvE,o=>o.re)}</td><td class="num">${sum(bvE,o=>o.reF)}</td><td class="num">${egp(sum(bvE,o=>o.reC))}</td><td class="num">${egp(sum(bvE,o=>o.t))}</td></tr>`;
 }
@@ -734,9 +814,29 @@ function renderOwned(V){
   const idle=[...ids].map(p=>{const b=busy[p]||new Set();let run=0,best=0;const days=V.owd.filter(d=>{const i=!b.has(d);run=i?run+1:0;best=Math.max(best,run);return i});
     return{p,fl:!M.trucks[p],idle:days.length,act:V.owd.length-days.length,best,ret:ret[p]||"—",pct:days.length/Math.max(1,V.owd.length)}}).sort((a,b)=>b.idle-a.idle||b.best-a.best);
   const isum=sum(idle,x=>x.idle);
-  $("tIdle").innerHTML=`<tr><th>Truck</th><th>Usual driver</th><th class="num">Working days</th><th class="num">Active</th><th class="num">Idle</th><th class="num">Idle %</th><th class="num">Longest idle run</th><th>Last return (est.)</th></tr>`+
-    idle.map(x=>{const d=Object.entries(M.drivers).find(([c,dd])=>dd.truck==x.p);return`<tr><td><b>${esc(x.p)}</b>${x.fl?'<span class="flag">new</span>':""}</td><td>${d?esc(d[0])+" · "+esc(d[1].name.slice(0,16)):""}</td><td class="num">${V.owd.length}</td><td class="num">${x.act}</td><td class="num"><b>${x.idle}</b></td><td class="num"><span class="pill ${x.pct<=.1?"p-ok":x.pct<=.25?"p-w":"p-b"}">${(x.pct*100).toFixed(0)}%</span></td><td class="num">${x.best}</td><td>${x.ret}</td></tr>`}).join("")+
-    (idle.length?`<tr class="tot"><td>Total</td><td>${idle.length} trucks</td><td class="num">${V.owd.length*idle.length}</td><td class="num">${V.owd.length*idle.length-isum}</td><td class="num">${isum}</td><td class="num">${(isum/Math.max(1,V.owd.length*idle.length)*100).toFixed(0)}%</td><td></td><td></td></tr>`:"");
+  const SL=showOwned&&!SEL.vendor.size?(DS.S||[]).filter(r=>r.d&&r.x&&!EXCL[r.id]&&r.d>=V.f&&r.d<=V.t&&(!SEL.truck.size||SEL.truck.has(r.plate))&&(!V.ft||(M.trucks[r.plate]||{}).temp==V.ft)&&(!SEL.driver.size||Object.entries(M.drivers).some(([c,d])=>SEL.driver.has(c)&&d.truck==r.plate))):[];
+  const logAt={};SL.forEach(r=>logAt[r.plate+"|"+r.d]=r.x.cat);
+  const SHORT={"Waiting at branch":"Branch","Waiting at plant":"Plant","Maintenance":"Maint.","License":"Licence","Missing driver":"No driver","Other":"Other","Unclassified":"Unclass.","On trip":"On trip (log)"};
+  idle.forEach(x=>{const c={};V.owd.forEach(d=>{if((busy[x.p]||new Set()).has(d))return;const k=logAt[x.p+"|"+d]||"Not in log";c[k]=(c[k]||0)+1});x.why=Object.entries(c).sort((a,b)=>b[1]-a[1]).map(([k,n])=>`${SHORT[k]||k} ${n}`).join(" · ")});
+  $("tIdle").innerHTML=`<tr><th>Truck</th><th>Usual driver</th><th class="num">Working days</th><th class="num">Active</th><th class="num">Idle</th><th class="num">Idle %</th><th class="num">Longest idle run</th><th>Last return (est.)</th><th>Idle days per stoppage log</th></tr>`+
+    idle.map(x=>{const d=Object.entries(M.drivers).find(([c,dd])=>dd.truck==x.p);return`<tr><td><b>${esc(x.p)}</b>${x.fl?'<span class="flag">new</span>':""}</td><td>${d?esc(d[0])+" · "+esc(d[1].name.slice(0,16)):""}</td><td class="num">${V.owd.length}</td><td class="num">${x.act}</td><td class="num"><b>${x.idle}</b></td><td class="num"><span class="pill ${x.pct<=.1?"p-ok":x.pct<=.25?"p-w":"p-b"}">${(x.pct*100).toFixed(0)}%</span></td><td class="num">${x.best}</td><td>${x.ret}</td><td class="muted">${x.why||""}</td></tr>`}).join("")+
+    (idle.length?`<tr class="tot"><td>Total</td><td>${idle.length} trucks</td><td class="num">${V.owd.length*idle.length}</td><td class="num">${V.owd.length*idle.length-isum}</td><td class="num">${isum}</td><td class="num">${(isum/Math.max(1,V.owd.length*idle.length)*100).toFixed(0)}%</td><td></td><td></td><td></td></tr>`:"");
+  const CATS=["On trip","Waiting at branch","Waiting at plant","Maintenance","License","Missing driver","Other","Unclassified"],STOPC=CATS.slice(1);
+  const SW=SL.filter(r=>isWork(r.d)),cnt=(arr,c)=>arr.filter(r=>r.x.cat==c).length;
+  const stopW=SW.filter(r=>r.x.stop).length;
+  $("tStopCat").innerHTML=`<tr><th>Root cause</th><th class="num">Truck-days (working)</th><th class="num">Share of logged days</th><th class="num">Incl. days off</th></tr>`+
+    CATS.map(c=>[c,cnt(SW,c),cnt(SL,c)]).filter(x=>x[2]).map(([c,w,a])=>`<tr><td>${c=="On trip"?"On trip (working)":`<b>${c}</b>`}</td><td class="num">${w.toLocaleString()}</td><td class="num">${SW.length?(w/SW.length*100).toFixed(1):0}%</td><td class="num">${a.toLocaleString()}</td></tr>`).join("")+
+    `<tr class="tot"><td>Stoppage days</td><td class="num">${stopW.toLocaleString()}</td><td class="num">${SW.length?(stopW/SW.length*100).toFixed(1):0}%</td><td class="num">${SL.filter(r=>r.x.stop).length.toLocaleString()}</td></tr>`;
+  const sc=coverage().S;
+  $("stopNote").textContent=SL.length?`${SL.length.toLocaleString()} log entries for ${new Set(SL.map(r=>r.plate)).size} trucks in ${V.f>"0000"?V.f:"start"} → ${V.t<"9999"?V.t:"end"} (log covers ${sc?sc[0]+" → "+sc[1]:"—"}). Days with no entry are not in the log.`:"No stoppage log loaded for this period (upload it in slot 4).";
+  const byM={};SW.forEach(r=>{const m=monthOf(r.d);const o=byM[m]=byM[m]||{};o[r.x.cat]=(o[r.x.cat]||0)+1;o._n=(o._n||0)+1});
+  const usedC=STOPC.filter(c=>SW.some(r=>r.x.cat==c));
+  $("tStopMonth").innerHTML=`<tr><th>Month</th><th class="num">On trip</th>${usedC.map(c=>`<th class="num">${SHORT[c]}</th>`).join("")}<th class="num">Stoppage %</th></tr>`+
+    Object.entries(byM).sort().map(([m,o])=>{const st=sum(usedC,c=>o[c]||0);return`<tr><td style="white-space:nowrap">${m}</td><td class="num">${o["On trip"]||0}</td>${usedC.map(c=>`<td class="num">${o[c]||""}</td>`).join("")}<td class="num"><b>${(st/o._n*100).toFixed(0)}%</b></td></tr>`}).join("");
+  const byTk={};SW.forEach(r=>{const o=byTk[r.plate]=byTk[r.plate]||{n:0,c:{},fl:!r.x.truck};o.n++;o.c[r.x.cat]=(o.c[r.x.cat]||0)+1});
+  $("tStopTruck").innerHTML=`<tr><th>Truck</th><th>Usual driver</th><th class="num">Logged days</th><th class="num">On trip</th>${usedC.map(c=>`<th class="num">${SHORT[c]}</th>`).join("")}<th class="num">Stoppage days</th><th class="num">Stoppage %</th></tr>`+
+    Object.entries(byTk).map(([p,o])=>({p,...o,st:sum(usedC,c=>o.c[c]||0)})).sort((a,b)=>b.st-a.st).map(x=>{const d=Object.entries(M.drivers).find(([c,dd])=>dd.truck==x.p);
+      return`<tr><td><b>${esc(x.p)}</b>${x.fl?'<span class="flag">new</span>':""}</td><td>${d?esc(d[0])+" · "+esc(d[1].name.slice(0,16)):""}</td><td class="num">${x.n}</td><td class="num">${x.c["On trip"]||0}</td>${usedC.map(c=>`<td class="num">${x.c[c]||""}</td>`).join("")}<td class="num"><b>${x.st}</b></td><td class="num"><span class="pill ${x.st/x.n<=.1?"p-ok":x.st/x.n<=.25?"p-w":"p-b"}">${(x.st/x.n*100).toFixed(0)}%</span></td></tr>`}).join("");
   $("idleNote").textContent=V.oR?`${V.oR[0]} → ${V.oR[1]} · ${V.owd.length} working days (Fridays and Calendar holidays excluded). A trip keeps the truck out from its shipment date for ceil(route weight) days. Active master trucks with no trip count as fully idle.`:"";
   // driver KPI
   const byDr={};ow.forEach(r=>{const o=byDr[r.driver]=byDr[r.driver]||{t:0,p:0,s:0,m:0,l:0,fl:!r.x.drv};o.t++;const w=r.x.w||0;o.p+=w;w<1?o.s++:w>1?o.l++:o.m++});
@@ -774,7 +874,7 @@ function makeMS(id,label,opts,key){const el=$(id);
   el.querySelectorAll(".opts input").forEach(c=>c.onchange=()=>{c.checked?SEL[key].add(c.value):SEL[key].delete(c.value);upd();render()})}
 document.addEventListener("click",e=>document.querySelectorAll(".ms.open").forEach(m=>{if(!m.contains(e.target))m.classList.remove("open")}));
 function initFilters(keepDates){
-  if(!M)return;const okR=DS.O.concat(DS.V).filter(r=>r.ok);const dts=okR.map(r=>r.d).sort();
+  if(!M)return;const okR=DS.O.concat(DS.V).filter(r=>r.ok);const dts=okR.map(r=>r.d).concat((DS.S||[]).filter(r=>r.d&&!EXCL[r.id]).map(r=>r.d)).sort();
   if(dts.length&&(!keepDates||!$("fFrom").value)){$("fFrom").value=dts[0];$("fTo").value=dts[dts.length-1]}
   const plates=[...new Set(Object.keys(M.trucks).concat(DS.O.filter(r=>r.ok).map(r=>r.x.plate)))].filter(Boolean).sort();
   makeMS("msTruck","Trucks",plates.map(p=>({v:p,t:p+(M.trucks[p]?"":" (new)")})),"truck");
@@ -787,29 +887,31 @@ function preset(p){const dts=DS.O.concat(DS.V).filter(r=>r.ok).map(r=>r.d).sort(
 /* ================= load / run ================= */
 async function readWB(file){return XLSX.read(await file.arrayBuffer(),{cellDates:false})}
 async function runChecks(){
-  const f1=$("fOwned").files[0],f2=$("fVendor").files[0],f3=$("fMaster").files[0],o=$("syncDiag");
-  if(!f1&&!f2&&!f3){o.textContent="Choose at least one file.";return}
+  const f1=$("fOwned").files[0],f2=$("fVendor").files[0],f3=$("fMaster").files[0],f4=$("fStop").files[0],o=$("syncDiag");
+  if(!f1&&!f2&&!f3&&!f4){o.textContent="Choose at least one file.";return}
   o.textContent="Reading files…";
   try{
     const fileIssues=[];
     if(f3){const r=readMaster(await readWB(f3),f3.name);if(r.M){M=r.M;M._iss=r.iss}else{fileIssues.push(...r.iss)}}
-    for(const [f,src] of [[f1,"O"],[f2,"V"]]){if(!f)continue;const r=readData(await readWB(f),src,f.name);fileIssues.push(...r.fileIssues);
+    for(const [f,src] of [[f1,"O"],[f2,"V"],[f4,"S"]]){if(!f)continue;const r=readData(await readWB(f),src,f.name);fileIssues.push(...r.fileIssues);
       if(r.recs.length||r.fileIssues.length){DS[src]=r.recs;DS.files[src]=r.meta;}}
-    if(f1||f2){DS.legacy=false;EXCL={}}
+    if(f1||f2||f4){DS.legacy=DS.O.some(r=>r.legacy)||DS.V.some(r=>r.legacy);EXCL={}}
     DS.fileIssues=fileIssues;DIRTY=true;
     validate();if(H.ok)prepCost();initFilters();
     $("statusBadge").textContent="uploaded — not shared yet";$("statusBadge").className="chip w";
     o.textContent=H.ok?"Checks passed. Press “Calculate & share” on Data health.":"Checks found blocking issues — see Data health.";
     setScreen("health");
   }catch(e){o.textContent="✗ Could not read the files: "+e.message;console.error(e)}}
+function masterDefaults(m){if(!m)return m;["hol","holSt","sppi","shty","trucks","drivers","oroutes","sroutes","contracts","alias","stops"].forEach(k=>m[k]=m[k]||{});
+  m.P=Object.assign({costSrc:"Invoice when available",invTol:0.05},m.P||{});return m}
 function loadSnapshot(d,label){
-  if(d.v==2){M=d.master;M._iss=d.masterIssues||[];DS={O:d.O,V:d.V,files:d.files||{},legacy:!!d.legacy,fileIssues:[]};EXCL=d.excl||{}}
+  if(d.v==2){M=masterDefaults(d.master);M._iss=d.masterIssues||[];DS={O:d.O,V:d.V,S:d.S||[],files:d.files||{},legacy:!!d.legacy,fileIssues:[]};EXCL=d.excl||{}}
   else{ // old dashboard format: records only, master from the baked v2 master
-    DS={O:(d.owned||[]).map((r,i)=>({id:"O#"+i,src:"O",row:null,ship:"",d:r.d,dRaw:r.d,route:r.route,spi:T(r.spi).toUpperCase(),driver:code(r.driver),dname:"",car2:T(r.truck=="?"?"":r.truck)})),
-        V:(d.vendor||[]).map((r,i)=>({id:"V#"+i,src:"V",row:null,ship:"",d:r.d,dRaw:r.d,route:r.route,spi:T(r.spi).toUpperCase(),shty:T(r.shty).toUpperCase(),vendor:T(r.vendor).replace(/\s+/g," "),ov:+r.ov||0,ovBad:null})),
-        files:{},legacy:true,fileIssues:[]};
+    DS={O:(d.owned||[]).map((r,i)=>({id:"O#"+i,src:"O",row:null,ship:"",d:r.d,dRaw:r.d,route:r.route,spi:T(r.spi).toUpperCase(),driver:code(r.driver),dname:"",car2:T(r.truck=="?"?"":r.truck),legacy:true})),
+        V:(d.vendor||[]).map((r,i)=>({id:"V#"+i,src:"V",row:null,ship:"",d:r.d,dRaw:r.d,route:r.route,spi:T(r.spi).toUpperCase(),shty:T(r.shty).toUpperCase(),vendor:T(r.vendor).replace(/\s+/g," "),ov:+r.ov||0,ovBad:null,legacy:true})),
+        S:[],files:{},legacy:true,fileIssues:[]};
     DS.files.O={src:"O",file:label,legacy:true,read:DS.O.length};DS.files.V={src:"V",file:label,legacy:true,read:DS.V.length};
-    if(!M&&BAKED_MASTER_V2){M=JSON.parse(JSON.stringify(BAKED_MASTER_V2));M._iss=[]}EXCL={}}
+    if(!M&&BAKED_MASTER_V2){M=masterDefaults(JSON.parse(JSON.stringify(BAKED_MASTER_V2)));M._iss=[]}else masterDefaults(M);EXCL={}}
   DIRTY=false;validate();if(H.ok)prepCost();initFilters();
   $("statusBadge").textContent=label;$("statusBadge").className="chip ok";render()}
 
@@ -820,11 +922,11 @@ async function dlWB(wb,fname){const o=$("syncDiag");
   XLSX.writeFile(wb,fname);o.textContent="✓ downloaded "+fname}
 const sheet=(aoa,widths)=>{const ws=XLSX.utils.aoa_to_sheet(aoa);if(widths)ws["!cols"]=widths.map(w=>({wch:w}));return ws};
 function exportFixList(){
-  const wb=XLSX.utils.book_new(),recById={};DS.O.concat(DS.V).forEach(r=>recById[r.id]=r);
+  const wb=XLSX.utils.book_new(),recById={};DS.O.concat(DS.V,DS.S||[]).forEach(r=>recById[r.id]=r);
   const iss=[["Rule","Level","Issue","What to do","File","Excel row","Shipment","Date","Route","Truck / vendor","Driver / ShTy","SpPI","Excluded"]];
   H.iss.forEach(i=>{const lv={B:"Blocker",W:"Warning",I:"Info"}[i.sev];
     if(!i.ids.length){iss.push([i.rule,lv,i.title,i.detail,"","","","","",Object.keys(i.ents||{}).join("; "),"","",""]);return}
-    i.ids.forEach(id=>{const r=recById[id];if(!r)return;iss.push([i.rule,lv,i.title,i.detail,r.src=="O"?"Owned":"Spot/rent",r.row||"",r.ship,r.d||T(r.dRaw),r.route,r.src=="O"?r.car2:r.vendor,r.src=="O"?r.driver:r.shty,r.spi,EXCL[id]?"yes":""])})});
+    i.ids.forEach(id=>{const r=recById[id];if(!r)return;iss.push([i.rule,lv,i.title,i.detail,{O:"Owned",V:"Spot/rent",S:"Stoppages"}[r.src],r.row||"",r.ship||"",r.d||T(r.dRaw),r.src=="S"?r.code:r.route,r.src=="O"?r.car2:r.src=="S"?r.desc:r.vendor,r.src=="O"?r.driver:r.src=="S"?r.equip:r.shty,r.spi||"",EXCL[id]?"yes":""])})});
   XLSX.utils.book_append_sheet(wb,sheet(iss,[6,9,44,50,10,9,12,11,30,26,14,7,9]),"Issues");
   const today=new Date().toISOString().slice(0,10);
   const newT={},newD={},newV={},newOR={},newSR={};
@@ -840,6 +942,9 @@ function exportFixList(){
   const codes={};H.iss.filter(i=>i.rule=="M6"||i.rule=="M7").forEach(i=>i.fix&&i.fix.row&&(codes[i.fix.tab]=codes[i.fix.tab]||[]).push(i.fix.row));
   if(codes["SpPI Master"])XLSX.utils.book_append_sheet(wb,sheet([["SpPI","Temperature (D/C)","Load (Single/Double)","Pallets","Status","Notes"],...codes["SpPI Master"]]),"SpPI (add)");
   if(codes["Shipment Type Master"])XLSX.utils.book_append_sheet(wb,sheet([["ShTy","Cost bucket","Description"],...codes["Shipment Type Master"]]),"Shipment Type (add)");
+  const sT={},sR={};(DS.S||[]).filter(r=>r.x).forEach(r=>{if(!r.x.truck&&r.plate)sT[r.plate]=sT[r.plate]||{eq:r.equip,n:0};if(sT[r.plate])sT[r.plate].n++;if(!r.x.reason)sR[r.code]=(sR[r.code]||0)+1});
+  if(Object.keys(sT).length)XLSX.utils.book_append_sheet(wb,sheet([["Plate","Temperature (D/C)","Plant","Active (Y/N)","Status","Last updated","SAP equipment","Days in stoppage log"],...Object.entries(sT).map(([p,o])=>[p,"","","Y","New",today,o.eq,o.n])]),"Truck Master (from log)");
+  if(Object.keys(sR).length)XLSX.utils.book_append_sheet(wb,sheet([["Code text","Category","Counts as stoppage (Y/N)","Status","Days in log"],...Object.entries(sR).map(([c,n])=>[c,"","Y","New",n])],[34,20,14,12,10]),"Stoppage Reasons (add)");
   dlWB(wb,"Juhayna-fix-list-"+today+".xlsx")}
 function exportLines(V){
   const rows=[["Mode","File","Excel row","Shipment","Date","Vendor / truck","Driver","Route","SpPI","Temp","Points","Line","Amount (EGP)","Formula","Master source","Estimated","Unmaintained"]];
@@ -854,7 +959,8 @@ function exportMaster(){
   add("Calendar",["Date","Holiday","Status"],Object.entries(M.hol).sort().map(([d,n])=>[d,n,M.holSt[d]||""]),[12,40,12]);
   add("SpPI Master",["SpPI","Temperature (D/C)","Load (Single/Double)","Pallets","Status"],Object.entries(M.sppi).map(([c,s])=>[c,s.temp,s.dbl?"Double":"Single",s.pal,s.st]));
   add("Shipment Type Master",["ShTy","Cost bucket","Description"],Object.entries(M.shty).map(([c,s])=>[c,s.bucket,s.desc]));
-  add("Truck Master",["Plate","Temperature (D/C)","Plant","Active (Y/N)","Status","Last updated"],Object.entries(M.trucks).map(([p,t])=>[p,t.temp,t.plant,t.active?"Y":"N",t.st,""]));
+  add("Truck Master",["Plate","Temperature (D/C)","Plant","Active (Y/N)","Status","Last updated","SAP equipment"],Object.entries(M.trucks).map(([p,t])=>[p,t.temp,t.plant,t.active?"Y":"N",t.st,"",t.equip||""]));
+  add("Stoppage Reasons",["Code text","Category","Counts as stoppage (Y/N)","Status"],Object.entries(M.stops).map(([c,x])=>[c,x.cat,x.stop?"Y":"N",x.st]),[34,20,14,12]);
   add("Driver Master",["Driver code","Driver name","Usual truck","Active (Y/N)","Status","Last updated"],Object.entries(M.drivers).map(([c,d])=>[c,d.name,d.truck,d.active?"Y":"N","",""]),[12,32,12,10,10,12]);
   add("Owned Route Master",["Route","Weight (days)","RT km","Incentive single (EGP)","Incentive double (EGP)","Plant shuttle (Y/N)","Incentive status","km status","Last updated"],Object.values(M.oroutes).map(o=>[o.name,o.w,o.km,o.i1,o.i2,o.plant?"Y":"N",o.ist,o.kst,""]),[40,10,8,10,10,10,12,12,12]);
   add("Spot-Rent Route Master",["Route","Weight (days)","RT km","Rate dry (EGP/trip)","Rate chilled (EGP/trip)","Valid from","Valid to","Rate status dry","Rate status chilled","km status","Last updated"],Object.values(M.sroutes).flat().map(s=>[s.name,s.w,s.km,s.rd,s.rc,dt(s.from),dt(s.to),s.sd,s.sc,s.kst,""]),[40,10,8,12,12,11,11,12,12,12,12]);
@@ -866,6 +972,7 @@ function tpl(n){const wb=XLSX.utils.book_new();
     [1,"5512108","JUH26","Juh-Shabramant (Zayed)","D24","14266","<driver name>","2475","3178 ف س","2026-09-01",24]],[5,10,8,26,6,14,20,9,12,12,7]);XLSX.utils.book_append_sheet(wb,ws,"Shipment Update");dlWB(wb,"Template-1-Owned-Shipments.xlsx")}
   if(n==2){const ws=sheet([["","Transportation cost"],["","PlDat.ChIn","Shipment","ShTy","Container ID","Driver Name","SvcPrvdr","Route name","SpPI","Over night Cost","Descrip.of Ship"],
     ["","2026-09-01","5504346","TR","6741","<driver>","<vendor name>","Suez","J24","",""]],[3,12,10,6,12,14,22,14,6,12,14]);XLSX.utils.book_append_sheet(wb,ws,"Spot-Rent extract");dlWB(wb,"Template-2-SpotRent-Extract.xlsx")}
+  if(n==4){const ws=sheet([["Equipment","Equipment Descriptio","Code text","Vehicle Type desc","Date"],[2498,"3621 ف س","صيانة","نقل ثقيل","2026-09-01"]],[10,16,26,14,12]);XLSX.utils.book_append_sheet(wb,ws,"Sheet1");dlWB(wb,"Template-4-Truck-Stoppages.xlsx")}
   if(n==3)exportMaster()}
 
 /* ================= sync (unchanged behaviour, v2 payload) ================= */
@@ -894,7 +1001,7 @@ async function pushData(){const o=$("syncDiag");
     o.textContent="sharing to "+c.repo+"…";
     const strip=r=>{const {x,L,LR,ok,reN,reFree,dup,...rest}=r;return rest};
     const mClean=JSON.parse(JSON.stringify(M,(k,v)=>k=="_iss"?undefined:v));
-    const raw={v:2,O:DS.O.map(strip),V:DS.V.map(strip),files:DS.files,legacy:DS.legacy,master:mClean,masterIssues:M._iss||[],excl:EXCL,health:{blockers:H.blockers,warns:H.warns},savedAt:new Date().toISOString()};
+    const raw={v:2,O:DS.O.map(strip),V:DS.V.map(strip),S:(DS.S||[]).map(strip),files:DS.files,legacy:DS.legacy,master:mClean,masterIssues:M._iss||[],excl:EXCL,health:{blockers:H.blockers,warns:H.warns},savedAt:new Date().toISOString()};
     const payload=JSON.stringify(PW?await encJSON(raw):raw),b64=btoa(unescape(encodeURIComponent(payload)));
     const url="https://api.github.com/repos/"+c.repo+"/contents/data.json",hd={Authorization:"Bearer "+c.token,Accept:"application/vnd.github+json"};
     let sha;try{const g=await fetch(url,{headers:hd});if(g.ok)sha=(await g.json()).sha;else if(g.status!=404){const ls=await fetch("https://api.github.com/repos/"+c.repo+"/contents/",{headers:hd});if(ls.ok){const f=(await ls.json()).find(x=>x.name=="data.json");if(f)sha=f.sha}}}catch(e){}
@@ -925,7 +1032,7 @@ $("resetBtn").onclick=()=>{SEL.truck.clear();SEL.driver.clear();SEL.vendor.clear
 /*__BAKED__*/
 try{if(sessionStorage.getItem("jh_auth")=="1"){PW=sessionStorage.getItem("jh_pw");$("loginOv").hidden=true}}catch(e){}
 window.addEventListener("load",()=>{
-  if(typeof BAKED_LEGACY!=="undefined"&&BAKED_LEGACY)loadSnapshot(BAKED_LEGACY,"preloaded snapshot (Aug 2026)");
+  if(typeof BAKED_LEGACY!=="undefined"&&BAKED_LEGACY)loadSnapshot(BAKED_LEGACY,"preloaded data");
   else{if(BAKED_MASTER_V2){M=JSON.parse(JSON.stringify(BAKED_MASTER_V2));M._iss=[]}validate();render()}
   loadRemote()});
 </script>
