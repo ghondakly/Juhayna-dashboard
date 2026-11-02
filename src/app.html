@@ -2,7 +2,7 @@
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Barlow:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=Barlow:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
 /* Layout: app shell — navy top bar with screens, upload strip, filter strip, one screen at a time; health chip always visible */
@@ -11,7 +11,7 @@
   --navy:#13294B;--navy-fg:#FFFFFF;--accent:#0B7A43;--accent-soft:#E3F4EA;
   --crit:#B42318;--crit-soft:#FDECEA;--warn:#A15C07;--warn-soft:#FEF3E2;--ok:#067647;--ok-soft:#E5F5EC;--info:#1D4ED8;--info-soft:#E8EEFC;
   --c-spot:#E08A4A;--c-mr:#2E8B7F;--c-own:#13294B;--c-inc:#9AA7BC;--c-re:#B9773E;
-  --display:"Barlow Condensed","Arial Narrow",Arial,sans-serif;--body:"Barlow","Segoe UI",Arial,sans-serif;--mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+  --display:"Barlow Condensed","IBM Plex Sans Arabic","Arial Narrow",Arial,sans-serif;--body:"Barlow","IBM Plex Sans Arabic","Segoe UI",Arial,sans-serif;--mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
 }
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
   --bg:#0D131D;--surface:#141C29;--sunk:#0F1622;--fg:#E5E9EF;--muted:#9AA5B6;--line:#263245;--navy:#1A3359;--navy-fg:#EAF0FA;--accent:#43C984;--accent-soft:#12301F;
@@ -22,6 +22,9 @@
   --crit:#F47A70;--crit-soft:#3A1715;--warn:#F2B45A;--warn-soft:#352409;--ok:#4FCB8A;--ok-soft:#0F2E1E;--info:#8DAEFF;--info-soft:#18233F;
   --c-spot:#F0A36A;--c-mr:#4FB8AA;--c-own:#7FA6E0;--c-inc:#7B879B;--c-re:#D49A62;color-scheme:dark}
 *{box-sizing:border-box}
+[dir="rtl"] th{text-align:right}
+[dir="rtl"] .num,[dir="rtl"] th.num{text-align:left}
+[dir="rtl"] .brand{letter-spacing:0}
 [hidden]{display:none!important}
 body{background:var(--bg);color:var(--fg);font-family:var(--body);font-size:14.5px;line-height:1.45;margin:0}
 .gut{padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
@@ -44,7 +47,7 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
 .tabs button[aria-current="page"]{opacity:1;background:rgba(255,255,255,.15)}
 .chip{font-family:var(--mono);font-size:11.5px;padding:4px 10px;border-radius:999px;white-space:nowrap;border:0;cursor:pointer}
 .chip.b{background:var(--crit-soft);color:var(--crit)}.chip.w{background:var(--warn-soft);color:var(--warn)}.chip.ok{background:var(--ok-soft);color:var(--ok)}.chip.i{background:var(--info-soft);color:var(--info)}
-.topr{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.topr{margin-inline-start:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .topr .ghost{background:rgba(255,255,255,.12);color:var(--navy-fg);border:0;border-radius:6px;padding:5px 10px;cursor:pointer;font-size:12.5px}
 
 /* strips */
@@ -67,7 +70,7 @@ body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset
 .crumb{font-family:var(--mono);font-size:11.5px;background:var(--navy);color:var(--navy-fg);border-radius:999px;padding:3px 10px}
 .ms{position:relative;display:inline-block}
 .ms>button{border:1px solid var(--line);background:var(--surface);border-radius:6px;padding:4px 8px;cursor:pointer;max-width:170px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-.ms .pop{display:none;position:absolute;top:110%;left:0;z-index:30;background:var(--surface);border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.18);width:250px;max-height:300px;overflow:auto;padding:8px}
+.ms .pop{display:none;position:absolute;top:110%;inset-inline-start:0;z-index:30;background:var(--surface);border:1px solid var(--line);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.18);width:250px;max-height:300px;overflow:auto;padding:8px}
 .ms.open .pop{display:block}
 .ms .pop input[type=search]{width:100%;border:1px solid var(--line);border-radius:6px;padding:4px 6px;margin-bottom:6px;background:var(--bg)}
 .ms .pop label{display:flex;gap:6px;align-items:center;font-size:12.5px;padding:3px 2px;font-weight:400;cursor:pointer;color:var(--fg)}
@@ -107,7 +110,7 @@ tr.tot td{font-weight:700;background:var(--sunk)}
 .banner.b{background:var(--crit-soft);border-color:var(--crit)}.banner.w{background:var(--warn-soft);border-color:var(--warn)}.banner.ok{background:var(--ok-soft);border-color:var(--ok)}
 .banner h2{font-size:24px}
 .banner.b h2{color:var(--crit)}.banner.w h2{color:var(--warn)}.banner.ok h2{color:var(--ok)}
-.banner .acts{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
+.banner .acts{margin-inline-start:auto;display:flex;gap:8px;flex-wrap:wrap}
 .issues{display:grid;gap:8px}
 .issue{background:var(--surface);border:1px solid var(--line);border-radius:8px}
 .issue>summary{list-style:none;display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:4px 12px;align-items:start;padding:10px 14px;cursor:pointer}
@@ -131,8 +134,8 @@ tr.tot td{font-weight:700;background:var(--sunk)}
 .keys i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
 .xrow{cursor:pointer}
 .xrow:hover td{background:var(--sunk)}
-.lvl1 td:first-child{padding-left:26px}
-.lvl2 td:first-child{padding-left:46px}
+.lvl1 td:first-child{padding-inline-start:26px}
+.lvl2 td:first-child{padding-inline-start:46px}
 .lines td{background:var(--sunk);font-size:12px}
 .formula{font-family:var(--mono);font-size:11.5px;color:var(--muted)}
 .ctl{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center}
@@ -163,6 +166,7 @@ tr.tot td{font-weight:700;background:var(--sunk)}
     <button type="button" data-s="days">Working days</button>
   </nav>
   <div class="topr">
+    <button type="button" class="ghost" id="langBtn" lang="ar">عربي</button>
     <button type="button" class="chip i" id="healthChip" title="Open Data health">checking…</button>
     <span class="chip i" id="statusBadge">no data</span>
   </div>
@@ -723,7 +727,8 @@ function renderHealth(){
     const ents=Object.entries(i.ents||{}).sort((a,b)=>b[1]-a[1]);
     const unit=(recById[i.ids[0]]||{}).src=="S"?"log entr":"shipment",cnt=i.ids.length?`${i.ids.length.toLocaleString()} ${unit}${unit=="log entr"?(i.ids.length>1?"ies":"y"):(i.ids.length>1?"s":"")}`:ents.length?`${ents.length} item${ents.length>1?"s":""}`:"";
     const sample=i.ids.slice(0,40).map(id=>recById[id]).filter(Boolean);
-    return`<details class="issue ${done?"done":""}" ${k<3&&i.sev=="B"?"open":""}><summary><span class="pill ${i.sev=="B"?"p-b":i.sev=="W"?"p-w":"p-i"}">${i.rule}</span><span class="t">${esc(i.title)}${done?" — excluded":""}</span><span class="cnt">${cnt}</span><span class="d">${esc(i.detail)}</span></summary>
+    const ar=LANG=="ar"&&RULE_AR[i.rule],ttl=ar?RULE_AR[i.rule][0]:i.title,det=ar?(i.rule=="X8"&&/[\d,]+ EGP/.test(i.detail)?"مبلغ قابل للاسترداد من الموردين: "+i.detail.match(/([\d,]+) EGP/)[1]+" جنيه شامل الضريبة.":RULE_AR[i.rule][1]):i.detail;
+    return`<details class="issue ${done?"done":""}" ${k<3&&i.sev=="B"?"open":""}><summary><span class="pill ${i.sev=="B"?"p-b":i.sev=="W"?"p-w":"p-i"}">${i.rule}</span><span class="t">${esc(ttl)}${done?(LANG=="ar"?" — مستبعد":" — excluded"):""}</span><span class="cnt">${cnt}</span><span class="d">${esc(det)}</span></summary>
       <div class="body">${ents.length?`<div style="display:flex;flex-wrap:wrap;gap:6px">${ents.slice(0,40).map(([e,c])=>`<span class="pill p-i">${esc(e)}${c>1?" · "+c:""}</span>`).join("")}${ents.length>40?`<span class="muted">+${ents.length-40} more</span>`:""}</div>`:""}
       ${sample.length?`<div class="tbl tscroll" style="max-height:220px"><table><tr><th>File</th><th>Row</th><th>Shipment</th><th>Date</th><th>Route / reason</th><th>${{O:"Truck · driver",V:"Vendor · ShTy",S:"Truck · equipment"}[sample[0].src]}</th><th>SpPI / invoice</th></tr>${sample.map(r=>`<tr><td>${{O:"Owned",V:"Spot/rent",S:"Stoppages"}[r.src]}</td><td>${r.row||"—"}</td><td class="mono">${esc(r.ship)||"—"}</td><td>${r.d||esc(T(r.dRaw))||"—"}</td><td>${esc(r.src=="S"?r.code:r.route)}</td><td>${r.src=="O"?esc(r.car2)+" · "+esc(r.driver):r.src=="S"?esc(r.desc)+" · "+esc(r.equip):esc(r.vendor)+" · "+esc(r.shty)}</td><td>${esc(r.spi||"")}${r.inv?" · "+egp(r.inv.net):""}${r.var!=null?` (${r.var>=0?"+":""}${(r.var*100).toFixed(1)}%)`:""}</td></tr>`).join("")}</table></div>${i.ids.length>40?`<span class="muted">Showing 40 of ${i.ids.length}. The fix list has all rows.</span>`:""}`:""}
       ${i.sev=="B"&&i.ex?`<span>${open?`<button class="btn sm" type="button" data-ex="${k}">Exclude ${open} shipment${open>1?"s":""} from cost and KPIs</button>`:`<button class="btn sm" type="button" data-unex="${k}">Undo exclusion</button>`}</span>`:i.sev=="B"?`<span class="muted">Fix this in the file or master and upload again; it can't be excluded.</span>`:""}
@@ -1083,10 +1088,78 @@ async function doLogin(){const u=$("lu").value.trim(),p=$("lp").value;
   if(hex===AUTH_HASH){PW=p;try{sessionStorage.setItem("jh_auth","1");sessionStorage.setItem("jh_pw",p)}catch(e){}$("loginOv").hidden=true;loadRemote()}
   else $("lerr").textContent="Invalid credentials / بيانات غير صحيحة"}
 
+/* ================= language (English / Arabic) ================= */
+const AR={"Data health":"صحة البيانات","Cost":"التكلفة","Cost explorer":"مستكشف التكلفة","Owned fleet":"الأسطول المملوك","Vendors":"الموردون","Working days":"أيام العمل",
+"Owned · Rented · Spot — validated against master data":"مملوك · إيجار · فوري — مُراجع على البيانات الرئيسية","JUHAYNA FLEET CONTROL TOWER":"برج مراقبة أسطول جهينة",
+"1 · Owned shipments":"1 · شحنات السيارات المملوكة","2 · Spot/rent/MR extracts (one or more)":"2 · مستخرجات الفوري/الإيجار (ملف أو أكثر)","3 · Master data v2":"3 · البيانات الرئيسية v2","4 · Truck stoppages":"4 · توقف السيارات",
+"template":"نموذج","download current":"تنزيل الحالي","▶ Run checks":"▶ تشغيل الفحص","⚙ Sync":"⚙ مزامنة","Test sync":"اختبار المزامنة","sync: off":"المزامنة: متوقفة",
+"From":"من","To":"إلى","Preset…":"فترة جاهزة…","Latest month":"آخر شهر","Last 7 days":"آخر 7 أيام","All data":"كل البيانات","Temp":"التبريد","All":"الكل","Dry":"جاف","Chilled":"مبرد",
+"Fleet":"الأسطول","Owned":"مملوك","Rented (MR)":"إيجار شهري (MR)","Spot":"فوري","Returns (RE)":"مرتجعات (RE)","✕ Reset":"✕ إعادة ضبط","search…":"بحث…",
+"Data clean":"البيانات سليمة","Ready, with warnings":"جاهز مع تحذيرات","Master data v2 needed":"مطلوب ملف البيانات الرئيسية v2","⬇ Fix list (Excel)":"⬇ قائمة التصحيح (Excel)","Calculate & share":"احسب وشارك","Open cost":"افتح التكلفة",
+"Owned shipments":"شحنات السيارات المملوكة","Spot/rent extract":"مستخرج الفوري/الإيجار","Truck stoppage log":"سجل توقف السيارات","Master data v2":"البيانات الرئيسية v2","Undo exclusion":"تراجع عن الاستبعاد",
+"Fix this in the file or master and upload again; it can't be excluded.":"صحح هذا في الملف أو البيانات الرئيسية ثم ارفع مرة أخرى؛ لا يمكن استبعاده.","No issues found.":"لا توجد مشاكل.",
+"Not calculated":"لم يتم الحساب","Open Data health":"افتح صحة البيانات","preloaded data":"بيانات محمّلة مسبقًا","uploaded — not shared yet":"تم الرفع — لم تتم المشاركة","no data":"لا توجد بيانات","incl.":"شامل",
+"Total spend":"إجمالي الإنفاق","Owned fuel":"وقود المملوك","Owned incentive":"حوافز المملوك","Shipments":"الشحنات","Turnover":"معدل الدوران","Performance":"الأداء","Points":"النقاط",
+"Cost per point (truck-day)":"التكلفة لكل نقطة (يوم سيارة)","Where the money goes":"توزيع الإنفاق","Invoices vs rate card, by month":"الفواتير مقابل قائمة الأسعار حسب الشهر",
+"Largest invoice differences by route":"أكبر فروق الفواتير حسب الخط","Rented trucks (MR) by vendor and month":"سيارات الإيجار الشهري حسب المورد والشهر","Spot and returns by vendor":"الفوري والمرتجعات حسب المورد",
+"Truck league — points vs working days":"ترتيب السيارات — النقاط مقابل أيام العمل","Driver incentive":"حوافز السائقين","Idle days — working days with no trip on the road":"أيام التوقف — أيام عمل بدون رحلة",
+"Stoppages by root cause":"التوقفات حسب السبب","Stoppage truck-days by month":"أيام التوقف حسب الشهر","Stoppages by truck":"التوقفات حسب السيارة","Driver KPI":"مؤشرات أداء السائقين",
+"Vendor league":"ترتيب الموردين","Rented (MR) utilisation vs contracted trucks":"استغلال الإيجار الشهري مقابل السيارات المتعاقد عليها","Top-3 vendor share per class":"حصة أكبر 3 موردين لكل نوع","Top routes served by vendors":"أكثر الخطوط لدى الموردين",
+"Target working days and owned performance by month":"أيام العمل المستهدفة وأداء الأسطول المملوك شهريًا","Extra off days":"أيام إجازة إضافية","Public holidays (reference)":"الإجازات الرسمية (للاسترشاد)",
+"Group by":"تجميع حسب","then":"ثم","⬇ Export cost lines (Excel)":"⬇ تصدير بنود التكلفة (Excel)","Date":"التاريخ","Reason":"السبب","Add off day":"إضافة يوم إجازة","Add all holidays":"إضافة كل الإجازات",
+"Remove":"حذف","Add":"إضافة","added":"مضاف","Reset to master":"العودة للبيانات الرئيسية","Day":"اليوم","Holiday":"الإجازة","Friday":"جمعة",
+"Vendor":"المورد","Month":"الشهر","MR trips":"رحلات الإيجار","Truck-eq":"ما يعادل سيارات","Trucks D/C":"سيارات جاف/مبرد","Rent":"الإيجار","VAT":"الضريبة","Fuel":"الوقود","Total":"الإجمالي",
+"Contract est. rent+VAT":"تقدير العقد (إيجار+ضريبة)","Spot trips":"رحلات فوري","Freight":"النولون","Overnight":"المبيت","RE trips":"رحلات المرتجعات","RE in allowance":"ضمن السماح","RE cost":"تكلفة المرتجعات",
+"Invoiced net":"صافي الفواتير","Rate card":"قائمة الأسعار","Difference":"الفرق","Route":"الخط","Invoiced":"المفوتر","Truck":"السيارة","Trips":"الرحلات","Perf":"الأداء","Projected / month":"المتوقع / شهر",
+"Status":"الحالة","Driver":"السائق","Period":"الفترة","Due next payslip":"مستحق الراتب القادم","New counter":"العداد الجديد","Usual driver":"السائق المعتاد","Active":"نشط","Idle":"متوقف","Idle %":"نسبة التوقف",
+"Longest idle run":"أطول فترة توقف","Last return (est.)":"آخر عودة (تقديري)","Idle days per stoppage log":"أيام التوقف حسب سجل التوقف","Root cause":"السبب","Truck-days (working)":"أيام سيارة (عمل)",
+"Share of logged days":"النسبة من الأيام المسجلة","Incl. days off":"شاملة أيام الإجازة","On trip":"في رحلة","On trip (working)":"في رحلة (عمل)","Branch":"الفرع","Plant":"المصنع","Maint.":"صيانة","Licence":"ترخيص",
+"No driver":"بدون سائق","Other":"أخرى","Unclass.":"غير مصنف","Stoppage %":"نسبة التوقف","Logged days":"الأيام المسجلة","Stoppage days":"أيام التوقف","Waiting at branch":"انتظار بالفرع","Waiting at plant":"انتظار بالمصنع",
+"Maintenance":"صيانة","License":"ترخيص","Missing driver":"نقص سائقين","Unclassified":"غير مصنف","ID":"الكود","Short <1d":"قصيرة <1 يوم","Medium =1d":"متوسطة =1 يوم","Long >1d":"طويلة >1 يوم",
+"MR points":"نقاط الإيجار","Contracted":"متعاقد","Utilisation":"الاستغلال","Class":"النوع","Top-3 share":"حصة أكبر 3","RT km":"كم ذهاب وعودة","Rate dry":"سعر جاف","Spot/RE spend":"إنفاق الفوري/المرتجعات","Spend":"الإنفاق",
+"Calendar days":"أيام الشهر","Fridays":"أيام الجمعة","Extra off":"إجازة إضافية","Owned trucks":"السيارات المملوكة","Target points":"النقاط المستهدفة","Actual points":"النقاط الفعلية","File":"الملف","Row":"الصف",
+"Shipment":"الشحنة","Route / reason":"الخط / السبب","Truck · driver":"السيارة · السائق","Vendor · ShTy":"المورد · النوع","Truck · equipment":"السيارة · المعدة","SpPI / invoice":"SpPI / الفاتورة","Per point":"لكل نقطة",
+"Incentive":"الحافز","Mode":"النمط","Temperature":"التبريد","ShTy":"نوع الشحنة","ON TRACK":"منتظم","WATCH":"متابعة","BEHIND":"متأخر","Returns":"مرتجعات","Rented":"إيجار","Owned fuel ":"وقود المملوك",
+"Owned (spot/rent)":"مملوك","Spot/rent":"فوري/إيجار","Stoppages":"التوقفات","Juhayna (owned)":"جهينة (مملوك)",
+"No extra off days. Target = calendar days − Fridays.":"لا توجد أيام إجازة إضافية. المستهدف = أيام الشهر − أيام الجمعة.",
+"No rented (MR) shipments in the loaded spot/rent extract for this period.":"لا توجد شحنات إيجار شهري في هذه الفترة."};
+const AR_PAT=[[/^(\d[\d,]*) blockers?$/,"$1 عوائق"],[/^(\d[\d,]*) warnings$/,"$1 تحذيرات"],[/^(\d[\d,]*) info$/,"$1 معلومات"],
+ [/^(\d+) blockers? · (\d+) warnings$/,"$1 عوائق · $2 تحذيرات"],[/^(\d+) warnings · (\d+) info$/,"$1 تحذيرات · $2 معلومات"],[/^data clean$/,"البيانات سليمة"],
+ [/^Blocked: (\d+) issues? stops? the calculation$/,"متوقف: $1 مشكلة تمنع الحساب"],[/^Trucks: All$/,"السيارات: الكل"],[/^Drivers: All$/,"السائقون: الكل"],[/^Vendor: All$/,"المورد: الكل"],
+ [/^Trucks: (\d+) sel$/,"السيارات: $1 محدد"],[/^Drivers: (\d+) sel$/,"السائقون: $1 محدد"],[/^Vendor: (\d+) sel$/,"المورد: $1 محدد"],[/^(\d[\d,]*) shipments?$/,"$1 شحنة"],
+ [/^(\d[\d,]*) log entr(y|ies)$/,"$1 سجل"],[/^(\d[\d,]*) items?$/,"$1 عنصر"],[/^Outside ±(\d+)%$/,"خارج ±$1%"],[/^Exclude (\d[\d,]*) shipments? from cost and KPIs$/,"استبعاد $1 شحنة من التكلفة والمؤشرات"],
+ [/^shared (.+)$/,"تمت المشاركة $1"],[/^sync: (.+) \(writer\)$/,"المزامنة: $1 (كتابة)"],[/^sync: (.+) \(viewer\)$/,"المزامنة: $1 (عرض)"],[/^(\d[\d,]*) trucks$/,"$1 سيارة"],
+ [/^(\d[\d,]*) trips$/,"$1 رحلة"],[/^Showing 40 of (\d+)\. The fix list has all rows\.$/,"عرض 40 من $1. قائمة التصحيح بها كل الصفوف."]];
+const RULE_AR={F1:["أعمدة مطلوبة غير موجودة","تتم مطابقة الأعمدة باسم العنوان في أول 20 صفًا. راجع شكل الملف."],F2:["ملف في الخانة الخطأ","ارفع الملف في الخانة الصحيحة."],
+ F3:["تاريخ غير مقروء","يجب أن يكون التاريخ بصيغة Excel أو dd/mm/yyyy أو yyyy-mm-dd."],F4:["أرقام شحنات مكررة","تُحسب كل شحنة مرة واحدة فقط."],F5:["قيمة ليست رقمًا","صحح القيمة في الملف أو استبعد الشحنة."],
+ F6:["حقل أساسي فارغ","لا يمكن مطابقة الشحنة أو تسعيرها بدون هذا الحقل."],F7:["تاريخ مستقبلي أو بعيد عن باقي الملف","غالبًا خطأ في كتابة التاريخ."],
+ M1:["سيارات غير موجودة في البيانات الرئيسية","محسوبة في الإجمالي مع علامة (قرار 1). أضفها إلى Truck Master."],M2:["سائقون غير موجودين في البيانات الرئيسية","محسوبون في الإجمالي مع علامة (قرار 1). أضفهم إلى Driver Master."],
+ M3:["عقود الموردين","أضف المورد أو العقد في Vendor Contracts."],M4:["خطوط الأسطول المملوك غير مكتملة","لا يمكن حساب النقاط أو الوقود أو الحافز. أضف الخط إلى Owned Route Master."],
+ M5:["خطوط الفوري/الإيجار غير مكتملة","أضف الخط أو السعر إلى Spot-Rent Route Master."],M6:["كود SpPI غير معرّف","أضف الكود إلى SpPI Master."],M7:["نوع شحنة غير معرّف","حدد نوع التكلفة في Shipment Type Master."],
+ M8:["هيكل ملف البيانات الرئيسية","صحح ملف البيانات الرئيسية."],X1:["السائق ليس السائق المعتاد للسيارة","الأداء يُحسب للسائق الذي قاد فعليًا."],
+ X2:["رحلات في يوم جمعة أو إجازة إضافية","محسوبة كإنتاج؛ أيام الإجازة لا تدخل في أيام العمل."],X3:["سيارة تبدأ نقاطًا أكثر من الحد في يوم واحد","احتمال تكرار أو رقم لوحة خاطئ."],
+ X4:["الملفات تغطي فترات مختلفة","كل ملف يُقاس على الفترة التي يغطيها؛ الإجماليات التي تجمعها تغطي فترات مختلفة."],X5:["سعر غير منطقي","سعر المبرد أقل من الجاف أو السعر بعيد عن خطوط بنفس المسافة. راجع السعر أو المسافة في البيانات الرئيسية."],
+ X6:["بيانات تقديرية أو قديمة","حدّث البيانات الرئيسية."],X7:["الفاتورة تختلف عن قائمة الأسعار","مقارنة بالسعر الساري في تاريخ الرحلة لنفس درجة التبريد. راجع الفاتورة أو السعر."],
+ X8:["مرتجعات مفوترة ضمن السماح المجاني",""],S1:["تاريخ غير مقروء في سجل التوقف","لا يمكن وضع هذه الصفوف على يوم."],S2:["سيارات في سجل التوقف غير موجودة في البيانات الرئيسية","أضفها إلى Truck Master مع رقم المعدة."],
+ S3:["أسباب توقف غير معرّفة","تظهر كغير مصنفة حتى تربطها بفئة في Stoppage Reasons."],S4:["توقف مسجل في يوم تبدأ فيه السيارة شحنة","إما السجل أو الشحنة خطأ."],
+ S5:["سيارة مسجلة «في رحلة» بدون شحنة مملوكة","يُفحص داخل فترة شحنات الأسطول المملوك فقط."]};
+function trText(t){const k=t.trim();if(!k)return null;if(AR[k])return t.replace(k,AR[k]);for(const [re,to] of AR_PAT)if(re.test(k))return t.replace(k,k.replace(re,to));return null}
+function translateNode(root){if(LANG!="ar"||!root||!root.nodeType||!root.isConnected)return;const w=document.createTreeWalker(root,NodeFilter.SHOW_TEXT,{acceptNode:n=>{const p=n.parentNode;return p&&!/^(SCRIPT|STYLE|TEXTAREA)$/.test(p.nodeName)?NodeFilter.FILTER_ACCEPT:NodeFilter.FILTER_REJECT}});
+  const todo=[];while(w.nextNode())todo.push(w.currentNode);
+  todo.forEach(n=>{const r=trText(n.nodeValue);if(r!=null&&r!==n.nodeValue){if(n.__en==null)n.__en=n.nodeValue;n.nodeValue=r}});
+  (root.querySelectorAll?root.querySelectorAll("[placeholder]"):[]).forEach(el=>{const r=trText(el.getAttribute("placeholder"));if(r){el.__enph=el.__enph||el.getAttribute("placeholder");el.setAttribute("placeholder",r)}})}
+function restoreEnglish(){const w=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT);while(w.nextNode()){const n=w.currentNode;if(n.__en!=null){n.nodeValue=n.__en;n.__en=null}}
+  document.querySelectorAll("[placeholder]").forEach(el=>{if(el.__enph){el.setAttribute("placeholder",el.__enph);el.__enph=null}})}
+let _obsBusy=false;const LANG_OBS=new MutationObserver(ms=>{if(LANG!="ar"||_obsBusy)return;_obsBusy=true;try{ms.forEach(m=>{try{if(m.type=="characterData")translateNode(m.target.parentNode);else m.addedNodes.forEach(n=>translateNode(n.nodeType==3?n.parentNode:n))}catch(e){}})}finally{_obsBusy=false}});
+function setLang(l){LANG=l;try{localStorage.setItem("jh_lang",l)}catch(e){}
+  document.documentElement.lang=l=="ar"?"ar":"en";document.documentElement.dir=l=="ar"?"rtl":"ltr";$("langBtn").textContent=l=="ar"?"English":"عربي";$("langBtn").lang=l=="ar"?"en":"ar";
+  if(l=="ar"){translateNode(document.body);LANG_OBS.observe(document.body,{childList:true,subtree:true,characterData:true})}else{LANG_OBS.disconnect();restoreEnglish()}
+  render()}
 /* ================= wiring ================= */
 $("loginBtn").onclick=doLogin;$("lp").addEventListener("keydown",e=>{if(e.key=="Enter")doLogin()});
 $("tabs").querySelectorAll("button").forEach(b=>b.onclick=()=>setScreen(b.dataset.s));
 $("healthChip").onclick=()=>setScreen("health");
+$("langBtn").onclick=()=>setLang(LANG=="ar"?"en":"ar");
 $("offAdd").onclick=()=>{const d=$("offDate").value;if(!d){$("offDate").focus();return}M.extraOff[d]=T($("offReason").value)||"Off day";$("offReason").value="";saveOff()};
 $("offAddAll").onclick=()=>{Object.entries(M.hol).forEach(([d,n])=>{if(dow(d)!=M.P.offDay)M.extraOff[d]=n});saveOff()};
 $("runBtn").onclick=runChecks;$("syncBtn").onclick=syncSetup;$("testBtn").onclick=syncTest;
@@ -1097,6 +1170,7 @@ $("resetBtn").onclick=()=>{SEL.truck.clear();SEL.driver.clear();SEL.vendor.clear
 /*__BAKED__*/
 try{if(sessionStorage.getItem("jh_auth")=="1"){PW=sessionStorage.getItem("jh_pw");$("loginOv").hidden=true}}catch(e){}
 window.addEventListener("load",()=>{
+  try{if(localStorage.getItem("jh_lang")=="ar")setTimeout(()=>setLang("ar"),0)}catch(e){}
   if(typeof BAKED_LEGACY!=="undefined"&&BAKED_LEGACY)loadSnapshot(BAKED_LEGACY,"preloaded data");
   else{if(BAKED_MASTER_V2){M=JSON.parse(JSON.stringify(BAKED_MASTER_V2));M._iss=[]}validate();render()}
   loadRemote()});
