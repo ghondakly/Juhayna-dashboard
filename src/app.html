@@ -136,7 +136,7 @@ tr.tot td{font-weight:700;background:var(--sunk)}
 .lines td{background:var(--sunk);font-size:12px}
 .formula{font-family:var(--mono);font-size:11.5px;color:var(--muted)}
 .ctl{display:flex;flex-wrap:wrap;gap:8px 14px;align-items:center}
-.ctl select{border:1px solid var(--line);border-radius:6px;padding:4px 6px;background:var(--surface)}
+.ctl select,.ctl input{border:1px solid var(--line);border-radius:6px;padding:4px 6px;background:var(--surface)}
 #loginOv{position:fixed;inset:0;background:var(--navy);z-index:99;display:flex;align-items:center;justify-content:center;padding:16px}
 #loginOv .box{background:var(--surface);border-radius:12px;padding:28px 30px;width:min(340px,100%);display:grid;gap:10px;text-align:center}
 #loginOv input{width:100%;padding:9px;border:1px solid var(--line);border-radius:6px;background:var(--bg)}
@@ -160,6 +160,7 @@ tr.tot td{font-weight:700;background:var(--sunk)}
     <button type="button" data-s="explore">Cost explorer</button>
     <button type="button" data-s="owned">Owned fleet</button>
     <button type="button" data-s="vendors">Vendors</button>
+    <button type="button" data-s="days">Working days</button>
   </nav>
   <div class="topr">
     <button type="button" class="chip i" id="healthChip" title="Open Data health">checking…</button>
@@ -169,7 +170,7 @@ tr.tot td{font-weight:700;background:var(--sunk)}
 
 <div class="strip"><div class="in gut">
   <div class="slot"><label for="fOwned">1 · Owned shipments <a data-tpl="1">template</a></label><input type="file" id="fOwned" accept=".xlsx,.xls"></div>
-  <div class="slot"><label for="fVendor">2 · Spot/rent extract <a data-tpl="2">template</a></label><input type="file" id="fVendor" accept=".xlsx,.xls"></div>
+  <div class="slot"><label for="fVendor">2 · Spot/rent/MR extracts (one or more) <a data-tpl="2">template</a></label><input type="file" id="fVendor" accept=".xlsx,.xls" multiple></div>
   <div class="slot"><label for="fMaster">3 · Master data v2 <a data-tpl="3">download current</a></label><input type="file" id="fMaster" accept=".xlsx,.xls"></div>
   <div class="slot"><label for="fStop">4 · Truck stoppages <a data-tpl="4">template</a></label><input type="file" id="fStop" accept=".xlsx,.xls"></div>
   <button class="btn pri" type="button" id="runBtn">▶ Run checks</button>
@@ -248,12 +249,26 @@ tr.tot td{font-weight:700;background:var(--sunk)}
       <div class="panel"><h3>Stoppages by root cause</h3><div class="tbl"><table id="tStopCat"></table></div><div class="sub" id="stopNote"></div></div>
       <div class="panel"><h3>Stoppage truck-days by month</h3><div class="tbl tscroll"><table id="tStopMonth"></table></div></div>
     </div>
-    <div class="panel"><h3>Stoppages by truck</h3><div class="tbl tscroll"><table id="tStopTruck"></table></div><div class="sub">From the SAP truck status log. Counted on working days (Fridays and Calendar holidays excluded); “On trip” days are working days, not stoppages.</div></div>
+    <div class="panel"><h3>Stoppages by truck</h3><div class="tbl tscroll"><table id="tStopTruck"></table></div><div class="sub">From the SAP truck status log. Counted on working days (Fridays and extra off days excluded); “On trip” days are working days, not stoppages.</div></div>
     <div class="panel"><h3>Driver KPI</h3><div class="tbl tscroll"><table id="tDrivers"></table></div></div>
   </div>
 </section>
 
 <!-- ============ VENDORS ============ -->
+<section class="screen" id="s-days" hidden>
+  <div class="panel"><h3>Target working days and owned performance by month</h3>
+    <div class="sub">Target per truck = calendar days − Fridays − the extra off days below. Public holidays are <b>not</b> deducted unless you add them. Target points = working days × trucks that ran that month (1 point per truck per working day).</div>
+    <div class="tbl tscroll"><table id="tDays"></table></div></div>
+  <div class="grid2">
+    <div class="panel"><h3>Extra off days</h3>
+      <div class="ctl"><label for="offDate">Date</label><input type="date" id="offDate"><label for="offReason">Reason</label><input type="text" id="offReason" placeholder="e.g. Eid al-Adha"><button class="btn pri" id="offAdd" type="button">Add off day</button></div>
+      <div class="tbl tscroll"><table id="tOff"></table></div><div class="sub" id="offNote"></div></div>
+    <div class="panel"><h3>Public holidays (reference)</h3>
+      <div class="sub">Official 2026 days off from the master Calendar tab. They only reduce the target once you add them.</div>
+      <div class="ctl"><button class="btn sm" id="offAddAll" type="button">Add all holidays</button></div>
+      <div class="tbl tscroll"><table id="tHol"></table></div></div>
+  </div>
+</section>
 <section class="screen" id="s-vendors" hidden>
   <div class="gate" id="g-vendors" hidden></div>
   <div id="c-vendors" class="screen">
@@ -317,7 +332,7 @@ const SEL={truck:new Set(),driver:new Set(),vendor:new Set()};
 let SCREEN="health";
 
 /* ================= working days ================= */
-function isWork(d){return dow(d)!==M.P.offDay&&!M.hol[d]}
+function isWork(d){return dow(d)!==M.P.offDay&&!M.extraOff[d]}
 function wdCount(f,t){let n=0;for(let d=f;d<=t;d=addD(d,1))if(isWork(d))n++;return n}
 function wdList(f,t){const o=[];for(let d=f;d<=t;d=addD(d,1))if(isWork(d))o.push(d);return o}
 
@@ -327,8 +342,8 @@ const SCHEMA={
       driver:["juhaynadriverno","driverno","drivercode"],dname:["juhaynadrivername","drivername"],car2:["carno2"],date:["pldatchin","plannedcheckin","shipmentdate","date"]},
      req:["ship","route","spi","driver","car2","date"],sig:["carno2","juhaynadriverno"]},
   V:{label:"Spot/rent extract",cols:{date:["pldatchin","shipmentdate","date"],ship:["shipment","shipmentno"],shty:["shty","shipmenttype"],
-      vendor:["svcprvdr","serviceprovider","numberofforwardingagent","forwardingagent","vendor"],route:["routename","shipmentroute"],spi:["sppi"],ov:["overnightcost","overnight"],dname:["drivername"],
-      net:["netvalue"],tax:["taxamount"],dest:["destpoint"]},
+      vendor:["svcprvdr","serviceprovider","numberofforwardingagent","forwardingagent","nameofforwardinga","nameofforwardingagent","vendor"],route:["routename","shipmentroute","name"],spi:["sppi"],ov:["overnightcost","overnight"],dname:["drivername"],
+      net:["netvalue"],tax:["taxamount"],dest:["destpoint"],mrRent:["actulshipmentcost","actualshipmentcost"],mrFuel:["totalsolarcost","solarcost"]},
      req:["date","ship","shty","vendor","route","spi"],sig:["shty","pldatchin"]},
   S:{label:"Truck stoppage log",cols:{equip:["equipment"],desc:["equipmentdescriptio","equipmentdescription","plate"],code:["codetext","reason"],date:["date"]},
      req:["desc","code","date"],sig:["codetext","equipmentdescriptio"]}};
@@ -366,24 +381,26 @@ function readData(wb,src,fname){
     const rec={src,row:r0+i+1,ship:code(g("ship")),dRaw:g("date"),d:parseDate(g("date")),route:T(g("route")),spi:T(g("spi")).toUpperCase()};
     if(src=="O"){rec.driver=code(g("driver"));rec.dname=T(g("dname"));rec.car2=T(g("car2"))}
     else{rec.shty=T(g("shty")).toUpperCase();rec.vendor=T(g("vendor")).replace(/\s+/g," ");const o=num(g("ov"));rec.ov=o.bad?0:o.v;rec.ovBad=o.bad?T(g("ov")):null;rec.dname=T(g("dname"));
-      if(mp.net!=null){const n=num(g("net")),t=num(g("tax"));if(n.bad||t.bad)rec.invBad=T(n.bad?g("net"):g("tax"));else if(!n.blank)rec.inv={net:n.v,tax:t.v}}}
+      if(mp.net!=null){const n=num(g("net")),t=num(g("tax"));if(n.bad||t.bad)rec.invBad=T(n.bad?g("net"):g("tax"));else if(!n.blank)rec.inv={net:n.v,tax:t.v}}
+      if(mp.mrRent!=null){const a=num(g("mrRent")),f=num(g("mrFuel"));if(a.bad||f.bad)rec.invBad=T(a.bad?g("mrRent"):g("mrFuel"));else if(!a.blank||!f.blank)rec.mrAct={rent:a.v,fuel:f.v}}}
     rec.id=src+":"+(rec.ship||("row"+rec.row));
     if(src=="V"&&rec.ship){const sg=JSON.stringify(r);
       if(byShip[rec.ship]){const a=byShip[rec.ship];
         if(sigs[rec.ship].includes(sg)){a.dupRows=(a.dupRows||0)+1;continue}
         sigs[rec.ship].push(sg);
         if(a.route==rec.route&&a.vendor==rec.vendor&&a.d==rec.d&&a.shty==rec.shty&&a.spi==rec.spi){
-          a.drops=(a.drops||1)+1;a.rows=(a.rows||[a.row]).concat(rec.row);if(rec.inv){a.inv=a.inv||{net:0,tax:0};a.inv.net+=rec.inv.net;a.inv.tax+=rec.inv.tax}if(rec.invBad)a.invBad=rec.invBad;continue}
+          a.drops=(a.drops||1)+1;a.rows=(a.rows||[a.row]).concat(rec.row);if(rec.inv){a.inv=a.inv||{net:0,tax:0};a.inv.net+=rec.inv.net;a.inv.tax+=rec.inv.tax}if(rec.mrAct){a.mrAct=a.mrAct||{rent:0,fuel:0};a.mrAct.rent+=rec.mrAct.rent;a.mrAct.fuel+=rec.mrAct.fuel}if(rec.invBad)a.invBad=rec.invBad;continue}
         rec.conflict=a.id;rec.id+="#"+rec.row}
       else{byShip[rec.ship]=rec;sigs[rec.ship]=[sg]}}
     recs.push(rec)}
-  meta.read=recs.length;
+  meta.read=recs.length;{const ds=recs.map(r=>r.d).filter(Boolean).sort();meta.range=ds.length?ds[0]+" → "+ds[ds.length-1]:"—"}
   return{recs,meta,fileIssues}}
 
 /* ================= master v2 ================= */
 const MS={
   "Parameters":{req:true,cols:{k:["parameter"],v:["value"]}},
   "Calendar":{req:true,cols:{d:["date"],name:["holiday"],st:["status"]}},
+  "Extra Off Days":{req:false,cols:{d:["date"],reason:["reason","holiday","name"]}},
   "SpPI Master":{req:true,cols:{code:["sppi"],temp:["temperaturedc"],load:["loadsingledouble"],pal:["pallets"],st:["status"]}},
   "Shipment Type Master":{req:true,cols:{code:["shty"],bucket:["costbucket"],desc:["description"]}},
   "Truck Master":{req:true,cols:{plate:["plate"],temp:["temperaturedc"],plant:["plant"],active:["activeyn"],st:["status"],upd:["lastupdated"]},opt:{equip:["sapequipment"]}},
@@ -419,7 +436,7 @@ function readMaster(wb,fname){
     const missing=Object.keys(def.cols).filter(f=>map[f]==null);
     if(hi<0||missing.length){mk("M8","B",`Master tab “${name}”: columns not found`,"Missing: "+missing.map(f=>def.cols[f][0]).join(", "));tabs[name]=[];continue}
     tabs[name]=rows.slice(hi+1).map((r,k)=>{const o={_row:r0+hi+2+k};for(const [f,j] of Object.entries(map))o[f]=r[j];return o}).filter(o=>T(o[Object.keys(def.cols)[0]])!=="")}
-  const m={src:fname,P:{},hol:{},holSt:{},sppi:{},shty:{},trucks:{},drivers:{},oroutes:{},sroutes:{},contracts:{},alias:{},stops:{},upd:null};
+  const m={src:fname,P:{},hol:{},holSt:{},sppi:{},shty:{},trucks:{},drivers:{},oroutes:{},sroutes:{},contracts:{},alias:{},stops:{},extraOff:{},upd:null};
   // parameters
   const pv={};tabs["Parameters"].forEach(r=>pv[T(r.k)]=r.v);
   for(const [k,[f,t,dflt]] of Object.entries(PARAMS)){const v=pv[k];
@@ -429,6 +446,8 @@ function readMaster(wb,fname){
     else m.P[f]=T(v)}
   if(m.P.ownFixed)mk("M8","W","Owned fixed costs = Y is not supported yet","Owned cost stays variable only (fuel + incentive). Set the parameter to N to clear this warning.");
   // calendar
+  (tabs["Extra Off Days"]||[]).forEach(r=>{const d=parseDate(r.d);if(!d){mk("M8","W",`Extra Off Days row ${r._row}: date not readable`,T(r.d));return}m.extraOff[d]=T(r.reason)||"Off day"});
+  m._offMaster={...m.extraOff};
   tabs["Calendar"].forEach(r=>{const d=parseDate(r.d);if(!d){mk("M8","W",`Calendar row ${r._row}: date not readable`,T(r.d));return}m.hol[d]=T(r.name)||"Holiday";m.holSt[d]=T(r.st)});
   const dup=(tab,keyf,label)=>{const seen={};tabs[tab].forEach(r=>{const k=keyf(r);if(!k)return;(seen[k]=seen[k]||[]).push(r._row)});
     Object.entries(seen).filter(([,v])=>v.length>1).forEach(([k,v])=>mk("M8","B",`${tab}: duplicate ${label} “${k}”`,"Rows "+v.join(", ")+". Keep one row per key."))};
@@ -532,10 +551,12 @@ function validate(){
       if(r.shty&&!x.bucket)add("M7","B",r.shty,`Shipment type ${r.shty} is not in Shipment Type Master`,"Decide its cost bucket (SPOT, MR, RE or NONE) in master.",r,{ex:1,fix:{tab:"Shipment Type Master",row:[r.shty,"",""]}});
       if(x.bucket=="NONE")return;
       if(r.vendor){
-        if(x.mode=="MR"&&!x.con)add("M3","B","mr","Rented (MR) trips without a valid vendor contract","Rent can't be calculated. Add or extend the contract in Vendor Contracts.",r,{ex:1,ent:r.vendor,fix:{tab:"Vendor Contracts"}});
-        else if(x.mode=="MR"&&x.sp&&!(x.temp=="C"?x.con.rc:x.con.rd))add("M3","B","rent","Rented (MR) trips under a contract with no rent for that temperature","Fill the dry/chilled monthly rent in Vendor Contracts.",r,{ex:1,ent:r.vendor+(x.temp=="C"?" (chilled)":" (dry)")});
+        const mrA=useInv()&&!!r.mrAct;
+        if(x.mode=="MR"&&!x.con&&mrA)add("M3","W","mract","Rented (MR) vendors without a contract (cost from the MR report)","Cost comes from the MR report; add the vendor to Vendor Contracts so it's maintained.",r,{ent:r.vendor,fix:{tab:"Vendor Contracts"}});
+        else if(x.mode=="MR"&&!x.con)add("M3","B","mr","Rented (MR) trips without a valid vendor contract","Rent can't be calculated. Add or extend the contract in Vendor Contracts.",r,{ex:1,ent:r.vendor,fix:{tab:"Vendor Contracts"}});
+        else if(x.mode=="MR"&&!mrA&&x.sp&&!(x.temp=="C"?x.con.rc:x.con.rd))add("M3","B","rent","Rented (MR) trips under a contract with no rent for that temperature","Fill the dry/chilled monthly rent in Vendor Contracts.",r,{ex:1,ent:r.vendor+(x.temp=="C"?" (chilled)":" (dry)")});
         else if(!x.vendorKnown)add("M3","W","new","Vendors not in Vendor Contracts","Spot trips are priced from the route rate; add the vendor so it's maintained.",r,{ent:r.vendor,fix:{tab:"Vendor Contracts"}})}
-      if(r.route&&x.mode){const inv=!!r.inv&&useInv()&&x.mode!="MR";
+      if(r.route&&x.mode){const inv=useInv()&&((!!r.inv&&x.mode!="MR")||(!!r.mrAct&&(x.mode=="MR"||x.mode=="RE")));
         if(!x.srAny){if(inv)add("M5","W","missinv","Vendor routes not in Spot-Rent Route Master (priced from invoice)","Cost comes from the SAP invoice. Weight and km are unknown, so these shipments are left out of points and cost per point. Add the route to master.",r,{ent:r.route,fix:{tab:"Spot-Rent Route Master"}});
           else add("M5","B","miss","Vendor routes not in Spot-Rent Route Master","Can't be priced or given points. Add the route (or an alias).",r,{ex:1,ent:r.route,fix:{tab:"Spot-Rent Route Master"}})}
         else if(!x.sr){if(inv)add("M5","W","dateinv","No route rate valid on the trip date (priced from invoice)","Check Valid from / Valid to; the invoice amount is used.",r,{ent:r.route+" @ "+r.d});
@@ -543,9 +564,9 @@ function validate(){
         else{if(x.sr.w==null){if(inv)add("M5","W","winv","Vendor routes without weight (priced from invoice)","Left out of points and cost per point.",r,{ent:x.sr.name});else add("M5","B","w","Vendor routes without weight","Points can't be calculated.",r,{ex:1,ent:x.sr.name})}
           if(x.mode!="MR"&&x.sp&&!x.rate&&!inv)add("M5","B","rate","Vendor routes without a rate for the trip's temperature","Spot/RE freight can't be priced.",r,{ex:1,ent:x.sr.name+(x.temp=="C"?" (chilled)":" (dry)")});
           if(r.inv&&x.rate&&x.mode!="MR"){r.var=r.inv.net/x.rate-1;if(Math.abs(r.var)>M.P.invTol)add("X7","W","x7",`Invoice differs from the rate card by more than ${Math.round(M.P.invTol*100)}%`,"Compared with the rate valid on the trip date for the shipment's temperature. Check the invoice or the master rate.",r,{ent:x.sr.name+(x.temp=="C"?" (C) ":" (D) ")+(r.var>0?"over":"under")})}
-          if(x.mode=="MR"&&!x.km)add("M5","B","km","Vendor routes without RT km","Rented-truck fuel can't be calculated.",r,{ex:1,ent:x.sr.name})}}
+          if(x.mode=="MR"&&!x.km&&!inv)add("M5","B","km","Vendor routes without RT km","Rented-truck fuel can't be calculated.",r,{ex:1,ent:x.sr.name})}}
     }
-    if(r.d&&!isWork(r.d))add("X2","I","x2","Trips on a Friday or public holiday","Counted as output; days off don't count as working days.",r,{ent:r.d+(M.hol[r.d]?" "+M.hol[r.d]:"")});
+    if(r.d&&!isWork(r.d))add("X2","I","x2","Trips on a Friday or an extra off day","Counted as output; days off don't count as working days.",r,{ent:r.d+(M.extraOff[r.d]?" "+M.extraOff[r.d]:dow(r.d)==5?" Friday":"")});
   });
   // X8 RE invoiced inside the free allowance
   {const g={};active.filter(r=>r.src=="V"&&r.x.mode=="RE"&&r.d&&r.inv).forEach(r=>{const k=r.vendor+"|"+monthOf(r.d);(g[k]=g[k]||[]).push(r)});
@@ -608,29 +629,36 @@ function prepCost(){
   const reG={};DS.V.filter(r=>r.ok&&r.x.mode=="RE").forEach(r=>{const k=r.vendor+"|"+monthOf(r.d);(reG[k]=reG[k]||[]).push(r)});
   Object.values(reG).forEach(list=>{list.sort((a,b)=>a.d<b.d?-1:a.d>b.d?1:(a.ship<b.ship?-1:1));
     list.forEach((r,i)=>{r.reN=i+1;const x=r.x;
+      if(inv&&r.mrAct){r.reFree=i<P.reFree;r.L.push(line("Freight",r.mrAct.rent,"MR report: rent share for an RE trip by a rented truck",false,"MR report row "+r.row));r.L.push(line("Fuel",r.mrAct.fuel,"solar (diesel) cost from the MR report",false,"MR report row "+r.row));return}
       if(inv&&r.inv){r.reFree=i<P.reFree;r.L.push(line("Freight",r.inv.net,`RE trip ${i+1} of ${monthOf(r.d)} — ${invTxt(r)}${i<P.reFree?" — inside free allowance: claimable":""}`,false,"Spot/rent extract row "+(r.rows||[r.row]).join("+")));r.L.push(line("VAT",r.inv.tax,"tax amount on the invoice",false,"Spot/rent extract"));return}
       if(i<P.reFree){r.reFree=true;r.L.push(line("Freight",0,`RE trip ${i+1} of ${monthOf(r.d)} — free (first ${P.reFree})`,false,"Parameters"))}
       else{const est=x.rateSt!="Confirmed";r.L.push(line("Freight",x.rate,`RE trip ${i+1} of ${monthOf(r.d)} — billable at ${x.temp=="C"?"chilled":"dry"} rate ${x.sr.name}`,est,`Spot-Rent Route Master row ${x.sr.row}`));
         if(P.spotVat)r.L.push(line("VAT",x.rate*P.vat,`freight × ${Math.round(P.vat*100)}%`,est,"Parameters"))}})});
   DS.V.filter(r=>r.ok&&r.x.mode=="MR").forEach(r=>{const x=r.x,c=x.temp=="C";
-    if(P.mrFuel&&x.con.fuel=="Juhayna")r.L.push(line("Fuel",fuelOf(x.km,c),fuelTxt(x.km,c),x.sr.kst!="Confirmed",`Spot-Rent Route Master row ${x.sr.row}`))});
+    if(inv&&r.mrAct){r.L.push(line("Fuel",r.mrAct.fuel,"solar (diesel) cost from the MR report",false,"MR report row "+(r.rows||[r.row]).join("+")));return}
+    if(P.mrFuel&&x.con&&x.con.fuel=="Juhayna")r.L.push(line("Fuel",fuelOf(x.km,c),fuelTxt(x.km,c),x.sr.kst!="Confirmed",`Spot-Rent Route Master row ${x.sr.row}`))});
 }
 /* rent for the filtered period: vendor × month × contract segments */
 function rentCalc(mr,F,Tt){
   const P=M.P,cov=coverage().V,seg={};
-  mr.forEach(r=>{const k=r.vendor+"|"+monthOf(r.d)+"|"+r.x.con.row;const s=seg[k]=seg[k]||{vendor:r.vendor,month:monthOf(r.d),con:r.x.con,pts:0,ptsC:0,recs:[]};
-    s.pts+=r.x.w;if(r.x.temp=="C")s.ptsC+=r.x.w;s.recs.push(r)});
+  mr.forEach(r=>{const k=r.vendor+"|"+monthOf(r.d)+"|"+(r.x.con?r.x.con.row:"-");const s=seg[k]=seg[k]||{vendor:r.vendor,month:monthOf(r.d),con:r.x.con,pts:0,ptsC:0,recs:[]};
+    s.pts+=r.x.w||0;if(r.x.temp=="C")s.ptsC+=r.x.w||0;s.recs.push(r)});
   const out=[];
   Object.values(seg).forEach(s=>{const mS=s.month+"-01",mE=monthEnd(s.month);
     const f=[F,mS,cov?cov[0]:F].sort().pop(),t=[Tt,mE,cov?cov[1]:Tt].sort()[0];
-    const wd=Math.max(1,wdCount(f,t)),wdM=Math.max(1,wdCount(mS,mE)),eq=s.pts/wd,con=s.con;
+    const wd=Math.max(1,wdCount(f,t)),wdM=Math.max(1,wdCount(mS,mE)),eq=s.pts/wd,con=s.con||{rd:0,rc:0,ct:0,vat:false,st:"Estimated",row:"—"};
+    const act=useInv()&&s.recs.every(r=>r.mrAct);
     const comp=Math.round(eq),trucks=P.truckRule.toLowerCase().startsWith("contract")?con.ct:P.truckRule.toLowerCase().startsWith("high")?Math.max(comp,con.ct):comp;
     const trC=s.pts?Math.round(trucks*s.ptsC/s.pts):0,trD=trucks-trC;
-    const rent=(trD*(con.rd||0)+trC*(con.rc||0))*wd/wdM,vat=con.vat&&P.rentVat?rent*P.vat:0;
+    const cRent=(trD*(con.rd||0)+trC*(con.rc||0))*wd/wdM,cVat=con.vat&&P.rentVat?cRent*P.vat:0;
     const fuel=sum(s.recs,r=>sum(r.L.filter(l=>l.k=="Fuel"),l=>l.a));
-    s.recs.forEach(r=>{const sh=s.pts?r.x.w/s.pts:0;r.LR=[line("Rent",rent*sh,`${trucks} truck(s) (${trD} dry, ${trC} chilled) × monthly rent × ${wd}/${wdM} working days, share ${r.x.w}/${s.pts.toFixed(1)} pts`,con.st!="Confirmed",`Vendor Contracts row ${con.row}`)];
+    if(act){const rent=sum(s.recs,r=>r.mrAct.rent);
+      s.recs.forEach(r=>{r.LR=[line("Rent",r.mrAct.rent,`MR report actual shipment cost (incl. VAT) — ${(r.x.w||0)} pts; implied rent ${egp(r.x.w?r.mrAct.rent/r.x.w*P.wdTarget/(1+P.vat):0)}/month + VAT`,false,"MR report row "+r.row)]});
+      out.push({...s,f,t,wd,wdM,eq,trucks,trD,trC,rent,vat:0,fuel,total:rent+fuel,est:false,act:true,estimate:cRent+cVat});return}
+    const rent=cRent,vat=cVat;
+    s.recs.forEach(r=>{const sh=s.pts?(r.x.w||0)/s.pts:0;r.LR=[line("Rent",rent*sh,`${trucks} truck(s) (${trD} dry, ${trC} chilled) × monthly rent × ${wd}/${wdM} working days, share ${r.x.w}/${s.pts.toFixed(1)} pts`,con.st!="Confirmed",`Vendor Contracts row ${con.row}`)];
       if(vat)r.LR.push(line("Rent VAT",vat*sh,`rent × ${Math.round(P.vat*100)}%`,con.st!="Confirmed","Parameters"))});
-    out.push({...s,f,t,wd,wdM,eq,trucks,trD,trC,rent,vat,fuel,total:rent+vat+fuel,est:con.st!="Confirmed"})});
+    out.push({...s,f,t,wd,wdM,eq,trucks,trD,trC,rent,vat,fuel,total:rent+vat+fuel,est:con.st!="Confirmed",act:false,estimate:rent+vat})});
   return out.sort((a,b)=>b.total-a.total)}
 const linesOf=r=>(r.L||[]).concat(r.LR||[]);
 const costOf=r=>sum(linesOf(r),l=>l.a);
@@ -669,6 +697,7 @@ function render(){
   ["cost","explore","owned","vendors"].forEach(s=>{const g=$("g-"+s),c=$("c-"+s);
     g.hidden=H.ok;c.hidden=!H.ok;
     if(!H.ok)g.innerHTML=`<h3 style="font-size:22px;color:var(--fg)">Not calculated</h3><p style="margin:0;max-width:52ch">${!M?"Load Master Data v2 first.":H.blockers?`${H.blockers} blocking issue${H.blockers>1?"s":""} must be fixed or excluded on Data health before any cost or KPI is shown.`:"No shipments loaded."}</p><button class="btn pri" type="button" data-goto="health">Open Data health</button>`;g.querySelectorAll("[data-goto]").forEach(b=>b.onclick=()=>setScreen(b.dataset.goto))});
+  if(SCREEN=="days")renderDays();
   if(!H.ok){$("crumb").textContent="—";return}
   const V=view();
   $("crumb").textContent=`${V.f>"0000-01-01"?V.f:"start"} → ${V.t<"9999"?V.t:"end"}${V.ft?" · "+(V.ft=="D"?"Dry":"Chilled"):""}${V.fl?" · "+MODE[V.fl]:""}${SEL.truck.size?" · "+SEL.truck.size+" trucks":""}${SEL.driver.size?" · "+SEL.driver.size+" drivers":""}${SEL.vendor.size?" · "+SEL.vendor.size+" vendors":""}`;
@@ -686,9 +715,9 @@ function renderHealth(){
   b.innerHTML=`<h2>${head}</h2><span style="display:flex;gap:6px;flex-wrap:wrap"><span class="chip b">${H.blockers} blockers</span><span class="chip w">${H.warns} warnings</span><span class="chip i">${H.infos} info</span></span>
    <span class="acts"><button class="btn" type="button" id="fixBtn">⬇ Fix list (Excel)</button><button class="btn pri" type="button" id="calcBtn" ${H.ok?"":"disabled"}>${DIRTY?"Calculate & share":"Open cost"}</button></span>`;
   $("fixBtn").onclick=exportFixList;$("calcBtn").onclick=()=>{if(DIRTY)pushData();setScreen("cost")};
-  const fc=f=>{if(!f)return"";const range=(()=>{const ds=DS[f.src].map(r=>r.d).filter(Boolean).sort();return ds.length?ds[0]+" → "+ds[ds.length-1]:"—"})();
+  const fc=f=>{if(!f)return"";const range=f.range||(()=>{const ds=DS[f.src].map(r=>r.d).filter(Boolean).sort();return ds.length?ds[0]+" → "+ds[ds.length-1]:"—"})();
     return`<div class="file"><b>${{O:"Owned shipments",V:"Spot/rent extract",S:"Truck stoppage log"}[f.src]}</b><span class="mono">${esc(f.file)}</span><span>${f.legacy?"saved snapshot (old format)":`sheet “${esc(f.sheet)}”, header on row ${f.headerRow}`}</span><span>${(f.read||0).toLocaleString()} shipments · ${range}${f.skipped?` · ${f.skipped} summary row${f.skipped>1?"s":""} skipped`:""}</span></div>`};
-  $("hFiles").innerHTML=fc(DS.files.O)+fc(DS.files.V)+fc(DS.files.S)+(M?`<div class="file"><b>Master data v2</b><span class="mono">${esc(M.src)}</span><span>${Object.keys(M.oroutes).length} owned routes · ${Object.keys(M.sroutes).length} spot routes · ${Object.keys(M.contracts).length} vendors</span><span>${Object.keys(M.trucks).length} trucks · ${Object.keys(M.drivers).length} drivers · ${Object.keys(M.hol).length} holidays · ${Object.keys(M.stops).length} stoppage reasons</span></div>`:"");
+  $("hFiles").innerHTML=Object.keys(DS.files).sort((a,b)=>"OVS".indexOf(a[0])-"OVS".indexOf(b[0])||a.localeCompare(b)).map(k=>fc(DS.files[k])).join("")+(M?`<div class="file"><b>Master data v2</b><span class="mono">${esc(M.src)}</span><span>${Object.keys(M.oroutes).length} owned routes · ${Object.keys(M.sroutes).length} spot routes · ${Object.keys(M.contracts).length} vendors</span><span>${Object.keys(M.trucks).length} trucks · ${Object.keys(M.drivers).length} drivers · ${Object.keys(M.extraOff).length} extra off days · ${Object.keys(M.stops).length} stoppage reasons</span></div>`:"");
   const recById={};DS.O.concat(DS.V,DS.S||[]).forEach(r=>recById[r.id]=r);
   $("hIssues").innerHTML=H.iss.map((i,k)=>{const open=openOf(i),done=i.sev=="B"&&i.ex&&open==0;
     const ents=Object.entries(i.ents||{}).sort((a,b)=>b[1]-a[1]);
@@ -730,9 +759,10 @@ function renderCost(V){
   const flagAmt=sum(recs.filter(flagged),costOf);
   $("confidence").innerHTML=`<b>${all?(estAmt/all*100).toFixed(0):0}%</b> of spend uses master values marked Estimated (rates, contracts, km). <b>${all?(flagAmt/all*100).toFixed(1):0}%</b> is on trips with an unmaintained truck, driver or vendor.`;
   $("rentNote").textContent=`Trucks = ${P.truckRule.toLowerCase().startsWith("comp")?"round(MR points ÷ working days)":P.truckRule}. Rent = trucks × monthly rent × period working days ÷ month working days (Fridays and Calendar holidays excluded), + ${Math.round(P.vat*100)}% VAT. Fuel = route RT km ÷ ${P.kmL} km/L × ${P.fuel} EGP/L (× ${P.reefer} chilled), paid by Juhayna.`;
-  $("tRent").innerHTML=`<tr><th>Vendor</th><th>Month</th><th class="num">MR trips</th><th class="num">Points</th><th class="num">Working days</th><th class="num">Truck-eq</th><th class="num">Trucks D/C</th><th class="num">Rent</th><th class="num">VAT</th><th class="num">Fuel</th><th class="num">Total</th></tr>`+
-    V.rent.map(x=>`<tr><td>${esc(x.vendor)}${x.est?'<span class="est">est</span>':""}${M.contracts[x.vendor]?"":'<span class="flag">new</span>'}</td><td>${x.month}</td><td class="num">${x.recs.length}</td><td class="num">${x.pts.toFixed(1)}</td><td class="num">${x.wd}/${x.wdM}</td><td class="num">${x.eq.toFixed(2)}</td><td class="num"><b>${x.trucks}</b> ${x.trD}/${x.trC}</td><td class="num">${egp(x.rent)}</td><td class="num">${egp(x.vat)}</td><td class="num">${egp(x.fuel)}</td><td class="num"><b>${egp(x.total)}</b></td></tr>`).join("")+
-    `<tr class="tot"><td>Total</td><td></td><td class="num">${V.mr.length}</td><td class="num">${mP.toFixed(1)}</td><td></td><td class="num">${sum(V.rent,x=>x.eq).toFixed(2)}</td><td class="num">${sum(V.rent,x=>x.trucks)}</td><td class="num">${egp(sum(V.rent,x=>x.rent))}</td><td class="num">${egp(sum(V.rent,x=>x.vat))}</td><td class="num">${egp(sum(V.rent,x=>x.fuel))}</td><td class="num">${egp(mrT)}</td></tr>`;
+  $("tRent").innerHTML=`<tr><th>Vendor</th><th>Month</th><th class="num">MR trips</th><th class="num">Points</th><th class="num">Working days</th><th class="num">Truck-eq</th><th class="num">Trucks D/C</th><th class="num">Rent</th><th class="num">VAT</th><th class="num">Fuel</th><th class="num">Total</th><th class="num">Contract est. rent+VAT</th></tr>`+
+    V.rent.map(x=>`<tr><td>${esc(x.vendor)}${x.est?'<span class="est">est</span>':""}${M.contracts[x.vendor]?"":'<span class="flag">new</span>'}</td><td>${x.month}</td><td class="num">${x.recs.length}</td><td class="num">${x.pts.toFixed(1)}</td><td class="num">${x.wd}/${x.wdM}</td><td class="num">${x.eq.toFixed(2)}</td><td class="num"><b>${x.trucks}</b> ${x.trD}/${x.trC}</td><td class="num">${egp(x.rent)}</td><td class="num">${x.act?'<span class="muted">incl.</span>':egp(x.vat)}</td><td class="num">${egp(x.fuel)}</td><td class="num"><b>${egp(x.total)}</b></td><td class="num muted">${egp(x.estimate)}</td></tr>`).join("")+
+    `<tr class="tot"><td>Total</td><td></td><td class="num">${V.mr.length}</td><td class="num">${mP.toFixed(1)}</td><td></td><td class="num">${sum(V.rent,x=>x.eq).toFixed(2)}</td><td class="num">${sum(V.rent,x=>x.trucks)}</td><td class="num">${egp(sum(V.rent,x=>x.rent))}</td><td class="num">${egp(sum(V.rent,x=>x.vat))}</td><td class="num">${egp(sum(V.rent,x=>x.fuel))}</td><td class="num">${egp(mrT)}</td><td class="num">${egp(sum(V.rent,x=>x.estimate))}</td></tr>`;
+  if(V.rent.some(x=>x.act))$("rentNote").textContent=`Rent and fuel from the MR report: actual cost per shipment (monthly rent + VAT ÷ ${P.wdTarget} × route points) and solar (diesel) cost. Trucks = round(MR points ÷ working days), for utilisation. “Contract est.” = trucks × Vendor Contracts rent × working days ÷ month working days + VAT, for comparison. Working days exclude Fridays${Object.keys(M.extraOff).length?" and extra off days":""}.`;
   $("spotNote").textContent=useInv()?`Freight and VAT from the SAP invoice where the extract has one (otherwise route rate + ${Math.round(P.vat*100)}% VAT). RE: the first ${P.reFree} per vendor per month should be free — “RE in allowance” counts those, and in invoice mode they are claimable.`:`Spot freight at route rate (+${Math.round(P.vat*100)}% VAT) + overnight cost. RE: first ${P.reFree} per vendor per calendar month free, then route rate + VAT.`;
   if(!V.rent.length)$("tRent").innerHTML=`<tr><td class="muted">No rented (MR) shipments in the loaded spot/rent extract for this period.</td></tr>`;
   // invoices vs rate card
@@ -789,12 +819,14 @@ function renderExplore(V){
 /* ---------- Owned fleet ---------- */
 function renderOwned(V){
   const P=M.P,ow=V.ow,WD=Math.max(1,V.owd.length);
-  const pts=sum(ow,r=>r.x.w||0),tr=new Set(ow.map(r=>r.x.plate)).size||1,perf=pts/(tr*WD);
+  const pts=sum(ow,r=>r.x.w||0),tr=new Set(ow.map(r=>r.x.plate)).size||1;
+  const wdBy={},trBy={};V.owd.forEach(d=>{const m=monthOf(d);wdBy[m]=(wdBy[m]||0)+1});ow.forEach(r=>{const m=monthOf(r.d);(trBy[m]=trBy[m]||new Set()).add(r.x.plate)});
+  const target=Object.entries(wdBy).reduce((a,[m,n])=>a+n*(trBy[m]?trBy[m].size:0),0)||1,perf=pts/target;
   const byT={};ow.forEach(r=>{const o=byT[r.x.plate]=byT[r.x.plate]||{t:0,p:0,fl:!r.x.truck};o.t++;o.p+=r.x.w||0});
   const league=Object.entries(byT).map(([k,v])=>({k,...v,pw:v.p/WD,proj:v.p/WD*P.wdTarget})).sort((a,b)=>b.pw-a.pw);
   $("owKpis").innerHTML=kpi(ow.length.toLocaleString(),"Shipments",`${tr} trucks`)+kpi((ow.length/tr).toFixed(1),"Turnover","shipments per truck")+
-    kpi((perf*100).toFixed(0)+"%","Performance",`points ${pts.toFixed(0)} ÷ target ${tr*WD}`)+kpi(pts.toFixed(0),"Points","route-weight days")+
-    kpi(V.owd.length,"Working days",V.oR?`${V.oR[0]} → ${V.oR[1]} · Fri & holidays excl.`:"no owned data in period");
+    kpi((perf*100).toFixed(1)+"%","Performance",`points ${pts.toFixed(0)} ÷ target ${target.toLocaleString()} (month working days × trucks that ran)`)+kpi(pts.toFixed(0),"Points","route-weight days")+
+    kpi(V.owd.length,"Working days",V.oR?`${V.oR[0]} → ${V.oR[1]} · Fridays${Object.keys(M.extraOff).length?" + extra off days":""} excluded`:"no owned data in period");
   $("tTrucks").innerHTML=`<tr><th>Truck</th><th class="num">Trips</th><th class="num">Points</th><th class="num">Perf</th><th class="num">Projected / month</th><th>Status</th></tr>`+
     league.map(x=>`<tr><td><b>${esc(x.k||"(no plate)")}</b>${x.fl?'<span class="flag">new</span>':""}</td><td class="num">${x.t}</td><td class="num">${x.p.toFixed(1)}</td><td class="num"><b>${(x.pw*100).toFixed(0)}%</b></td><td class="num">${x.proj.toFixed(1)}</td><td>${pill(x.pw)}</td></tr>`).join("");
   // incentive
@@ -838,13 +870,38 @@ function renderOwned(V){
   $("tStopTruck").innerHTML=`<tr><th>Truck</th><th>Usual driver</th><th class="num">Logged days</th><th class="num">On trip</th>${usedC.map(c=>`<th class="num">${SHORT[c]}</th>`).join("")}<th class="num">Stoppage days</th><th class="num">Stoppage %</th></tr>`+
     Object.entries(byTk).map(([p,o])=>({p,...o,st:sum(usedC,c=>o.c[c]||0)})).sort((a,b)=>b.st-a.st).map(x=>{const d=Object.entries(M.drivers).find(([c,dd])=>dd.truck==x.p);
       return`<tr><td><b>${esc(x.p)}</b>${x.fl?'<span class="flag">new</span>':""}</td><td>${d?esc(d[0])+" · "+esc(d[1].name.slice(0,16)):""}</td><td class="num">${x.n}</td><td class="num">${x.c["On trip"]||0}</td>${usedC.map(c=>`<td class="num">${x.c[c]||""}</td>`).join("")}<td class="num"><b>${x.st}</b></td><td class="num"><span class="pill ${x.st/x.n<=.1?"p-ok":x.st/x.n<=.25?"p-w":"p-b"}">${(x.st/x.n*100).toFixed(0)}%</span></td></tr>`}).join("");
-  $("idleNote").textContent=V.oR?`${V.oR[0]} → ${V.oR[1]} · ${V.owd.length} working days (Fridays and Calendar holidays excluded). A trip keeps the truck out from its shipment date for ceil(route weight) days. Active master trucks with no trip count as fully idle.`:"";
+  $("idleNote").textContent=V.oR?`${V.oR[0]} → ${V.oR[1]} · ${V.owd.length} working days (Fridays and extra off days excluded). A trip keeps the truck out from its shipment date for ceil(route weight) days. Active master trucks with no trip count as fully idle.`:"";
   // driver KPI
   const byDr={};ow.forEach(r=>{const o=byDr[r.driver]=byDr[r.driver]||{t:0,p:0,s:0,m:0,l:0,fl:!r.x.drv};o.t++;const w=r.x.w||0;o.p+=w;w<1?o.s++:w>1?o.l++:o.m++});
   $("tDrivers").innerHTML=`<tr><th>ID</th><th>Driver</th><th class="num">Trips</th><th class="num">Short &lt;1d</th><th class="num">Medium =1d</th><th class="num">Long &gt;1d</th><th class="num">Points</th><th class="num">Perf</th><th>Status</th></tr>`+
     Object.entries(byDr).map(([k,o])=>({k,...o,pw:o.p/WD})).sort((a,b)=>b.pw-a.pw).map(x=>`<tr><td><b>${esc(x.k)}</b>${x.fl?'<span class="flag">new</span>':""}</td><td>${esc((M.drivers[x.k]||{}).name||"")}</td><td class="num">${x.t}</td><td class="num">${x.s}</td><td class="num">${x.m}</td><td class="num">${x.l}</td><td class="num">${x.p.toFixed(1)}</td><td class="num"><b>${(x.pw*100).toFixed(0)}%</b></td><td>${pill(x.pw)}</td></tr>`).join("");
 }
 
+/* ---------- Working days ---------- */
+const OFF_KEY="jh_extra_off_v1";let LOCAL_OFF=false;
+function applyLocalOff(){if(!M)return;try{const v=JSON.parse(localStorage.getItem(OFF_KEY)||"null");if(v&&v.days){M.extraOff=v.days;LOCAL_OFF=true}}catch(e){}}
+function saveOff(){try{localStorage.setItem(OFF_KEY,JSON.stringify({days:M.extraOff,at:new Date().toISOString()}));LOCAL_OFF=true}catch(e){LOCAL_OFF=false}DIRTY=true;recalc()}
+function recalc(){validate();if(H.ok)prepCost();render()}
+function renderDays(){
+  if(!M)return;const P=M.P;
+  const ds=DS.O.concat(DS.V).filter(r=>r.d&&!r.dup&&!EXCL[r.id]).map(r=>r.d).sort();
+  const months=[];if(ds.length){let m=ds[0].slice(0,7);const last=ds[ds.length-1].slice(0,7);while(m<=last){months.push(m);const [y,mo]=m.split("-").map(Number);m=mo==12?(y+1)+"-01":y+"-"+pad(mo+1)}}
+  const own=DS.O.filter(r=>r.ok);let T0={cal:0,fri:0,off:0,wd:0,tp:0,pts:0};
+  const rows=months.map(m=>{const s=m+"-01",e=monthEnd(m);let cal=0,fri=0,off=0;for(let d=s;d<=e;d=addD(d,1)){cal++;if(dow(d)==P.offDay)fri++;else if(M.extraOff[d])off++}
+    const wd=cal-fri-off,o=own.filter(r=>monthOf(r.d)==m),tr=new Set(o.map(r=>r.x.plate)).size,pts=sum(o,r=>r.x.w||0),tp=wd*tr;
+    T0.cal+=cal;T0.fri+=fri;T0.off+=off;T0.wd+=wd;T0.tp+=tp;T0.pts+=pts;
+    return`<tr><td>${m}</td><td class="num">${cal}</td><td class="num">${fri}</td><td class="num">${off||""}</td><td class="num"><b>${wd}</b></td><td class="num">${tr||""}</td><td class="num">${tp?tp.toLocaleString():""}</td><td class="num">${pts?pts.toFixed(0):""}</td><td class="num">${tp?`<span class="pill ${pts/tp>=1?"p-ok":pts/tp>=.85?"p-w":"p-b"}">${(pts/tp*100).toFixed(1)}%</span>`:""}</td></tr>`});
+  $("tDays").innerHTML=`<tr><th>Month</th><th class="num">Calendar days</th><th class="num">Fridays</th><th class="num">Extra off</th><th class="num">Working days</th><th class="num">Owned trucks</th><th class="num">Target points</th><th class="num">Actual points</th><th class="num">Performance</th></tr>`+rows.join("")+
+    (months.length?`<tr class="tot"><td>Total</td><td class="num">${T0.cal}</td><td class="num">${T0.fri}</td><td class="num">${T0.off||""}</td><td class="num">${T0.wd}</td><td></td><td class="num">${T0.tp.toLocaleString()}</td><td class="num">${T0.pts.toFixed(0)}</td><td class="num">${T0.tp?(T0.pts/T0.tp*100).toFixed(1)+"%":""}</td></tr>`:"");
+  const offs=Object.entries(M.extraOff).sort();
+  $("tOff").innerHTML=offs.length?`<tr><th>Date</th><th>Day</th><th>Reason</th><th></th></tr>`+offs.map(([d,r])=>`<tr><td>${d}</td><td>${["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][dow(d)]}</td><td>${esc(r)}</td><td><button class="btn sm" type="button" data-rmoff="${d}">Remove</button></td></tr>`).join(""):`<tr><td class="muted">No extra off days. Target = calendar days − Fridays.</td></tr>`;
+  $("offNote").innerHTML=(LOCAL_OFF?"Saved in this browser. ":"From the master data. ")+`Press <b>Calculate &amp; share</b> on Data health to share changes; “download current” master carries them in the Extra Off Days tab.`+(LOCAL_OFF?` <button class="btn sm" type="button" id="offReset">Reset to master</button>`:"");
+  const hol=Object.entries(M.hol).sort();
+  $("tHol").innerHTML=`<tr><th>Date</th><th>Day</th><th>Holiday</th><th></th></tr>`+hol.map(([d,n])=>`<tr><td>${d}</td><td>${["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][dow(d)]}</td><td>${esc(n)}</td><td>${M.extraOff[d]?'<span class="pill p-ok">added</span>':dow(d)==P.offDay?'<span class="muted">Friday</span>':`<button class="btn sm" type="button" data-addhol="${d}">Add</button>`}</td></tr>`).join("");
+  document.querySelectorAll("[data-rmoff]").forEach(b=>b.onclick=()=>{delete M.extraOff[b.dataset.rmoff];saveOff()});
+  document.querySelectorAll("[data-addhol]").forEach(b=>b.onclick=()=>{M.extraOff[b.dataset.addhol]=M.hol[b.dataset.addhol];saveOff()});
+  const rs=$("offReset");if(rs)rs.onclick=()=>{try{localStorage.removeItem(OFF_KEY)}catch(e){}LOCAL_OFF=false;M.extraOff={...(M._offMaster||{})};recalc()};
+}
 /* ---------- Vendors ---------- */
 function renderVendors(V){
   const ve=V.ve,WD=Math.max(1,V.vwd.length);
@@ -888,22 +945,26 @@ function preset(p){const dts=DS.O.concat(DS.V).filter(r=>r.ok).map(r=>r.d).sort(
 /* ================= load / run ================= */
 async function readWB(file){return XLSX.read(await file.arrayBuffer(),{cellDates:false})}
 async function runChecks(){
-  const f1=$("fOwned").files[0],f2=$("fVendor").files[0],f3=$("fMaster").files[0],f4=$("fStop").files[0],o=$("syncDiag");
-  if(!f1&&!f2&&!f3&&!f4){o.textContent="Choose at least one file.";return}
+  const f1=$("fOwned").files[0],f2s=[...$("fVendor").files],f3=$("fMaster").files[0],f4=$("fStop").files[0],o=$("syncDiag");
+  if(!f1&&!f2s.length&&!f3&&!f4){o.textContent="Choose at least one file.";return}
   o.textContent="Reading files…";
   try{
     const fileIssues=[];
-    if(f3){const r=readMaster(await readWB(f3),f3.name);if(r.M){M=r.M;M._iss=r.iss}else{fileIssues.push(...r.iss)}}
-    for(const [f,src] of [[f1,"O"],[f2,"V"],[f4,"S"]]){if(!f)continue;const r=readData(await readWB(f),src,f.name);fileIssues.push(...r.fileIssues);
+    if(f3){const r=readMaster(await readWB(f3),f3.name);if(r.M){M=r.M;M._iss=r.iss;try{localStorage.removeItem(OFF_KEY)}catch(e){}LOCAL_OFF=false;M._offMaster={...M.extraOff}}else{fileIssues.push(...r.iss)}}
+    for(const [f,src] of [[f1,"O"],[f4,"S"]]){if(!f)continue;const r=readData(await readWB(f),src,f.name);fileIssues.push(...r.fileIssues);
       if(r.recs.length||r.fileIssues.length){DS[src]=r.recs;DS.files[src]=r.meta;}}
-    if(f1||f2||f4){DS.legacy=DS.O.some(r=>r.legacy)||DS.V.some(r=>r.legacy);EXCL={}}
+    if(f2s.length){let recs=[];const ids=new Set();Object.keys(DS.files).filter(k=>k[0]=="V").forEach(k=>delete DS.files[k]);
+      for(const [i,f] of f2s.entries()){const r=readData(await readWB(f),"V",f.name);fileIssues.push(...r.fileIssues);
+        r.recs.forEach(x=>{if(ids.has(x.id))x.id+="@"+(i+1);ids.add(x.id)});recs=recs.concat(r.recs);DS.files["V"+(i?i+1:"")]=r.meta}
+      DS.V=recs}
+    if(f1||f2s.length||f4){DS.legacy=DS.O.some(r=>r.legacy)||DS.V.some(r=>r.legacy);EXCL={}}
     DS.fileIssues=fileIssues;DIRTY=true;
     validate();if(H.ok)prepCost();initFilters();
     $("statusBadge").textContent="uploaded — not shared yet";$("statusBadge").className="chip w";
     o.textContent=H.ok?"Checks passed. Press “Calculate & share” on Data health.":"Checks found blocking issues — see Data health.";
     setScreen("health");
   }catch(e){o.textContent="✗ Could not read the files: "+e.message;console.error(e)}}
-function masterDefaults(m){if(!m)return m;["hol","holSt","sppi","shty","trucks","drivers","oroutes","sroutes","contracts","alias","stops"].forEach(k=>m[k]=m[k]||{});
+function masterDefaults(m){if(!m)return m;["hol","holSt","sppi","shty","trucks","drivers","oroutes","sroutes","contracts","alias","stops","extraOff"].forEach(k=>m[k]=m[k]||{});if(!m._offMaster)m._offMaster={...m.extraOff};
   m.P=Object.assign({costSrc:"Invoice when available",invTol:0.05},m.P||{});return m}
 function loadSnapshot(d,label){
   if(d.v==2){M=masterDefaults(d.master);M._iss=d.masterIssues||[];DS={O:d.O,V:d.V,S:d.S||[],files:d.files||{},legacy:!!d.legacy,fileIssues:[]};EXCL=d.excl||{}}
@@ -913,7 +974,7 @@ function loadSnapshot(d,label){
         S:[],files:{},legacy:true,fileIssues:[]};
     DS.files.O={src:"O",file:label,legacy:true,read:DS.O.length};DS.files.V={src:"V",file:label,legacy:true,read:DS.V.length};
     if(!M&&BAKED_MASTER_V2){M=masterDefaults(JSON.parse(JSON.stringify(BAKED_MASTER_V2)));M._iss=[]}else masterDefaults(M);EXCL={}}
-  DIRTY=false;validate();if(H.ok)prepCost();initFilters();
+  applyLocalOff();DIRTY=false;validate();if(H.ok)prepCost();initFilters();
   $("statusBadge").textContent=label;$("statusBadge").className="chip ok";render()}
 
 /* ================= exports ================= */
@@ -957,6 +1018,7 @@ function exportMaster(){
   const P=Object.entries(PARAMS).map(([k,[f,t]])=>[k,t=="yn"?(M.P[f]?"Y":"N"):t=="day"?DAYS[M.P[f]].replace(/^./,c=>c.toUpperCase()):M.P[f]]);
   const add=(name,hdr,rows,w)=>XLSX.utils.book_append_sheet(wb,sheet([[name.toUpperCase()],[""],hdr,...rows],w),name);
   add("Parameters",["Parameter","Value"],P,[38,18]);
+  add("Extra Off Days",["Date","Reason"],Object.entries(M.extraOff).sort(),[12,40]);
   add("Calendar",["Date","Holiday","Status"],Object.entries(M.hol).sort().map(([d,n])=>[d,n,M.holSt[d]||""]),[12,40,12]);
   add("SpPI Master",["SpPI","Temperature (D/C)","Load (Single/Double)","Pallets","Status"],Object.entries(M.sppi).map(([c,s])=>[c,s.temp,s.dbl?"Double":"Single",s.pal,s.st]));
   add("Shipment Type Master",["ShTy","Cost bucket","Description"],Object.entries(M.shty).map(([c,s])=>[c,s.bucket,s.desc]));
@@ -1001,7 +1063,7 @@ async function pushData(){const o=$("syncDiag");
   try{const c=syncCfg();if(!c||!c.token){o.textContent="(not shared — no writer token; data is visible only in this browser)";return}
     o.textContent="sharing to "+c.repo+"…";
     const strip=r=>{const {x,L,LR,ok,reN,reFree,dup,...rest}=r;return rest};
-    const mClean=JSON.parse(JSON.stringify(M,(k,v)=>k=="_iss"?undefined:v));
+    const mClean=JSON.parse(JSON.stringify(M,(k,v)=>k[0]=="_"?undefined:v));
     const raw={v:2,O:DS.O.map(strip),V:DS.V.map(strip),S:(DS.S||[]).map(strip),files:DS.files,legacy:DS.legacy,master:mClean,masterIssues:M._iss||[],excl:EXCL,health:{blockers:H.blockers,warns:H.warns},savedAt:new Date().toISOString()};
     const payload=JSON.stringify(PW?await encJSON(raw):raw),b64=btoa(unescape(encodeURIComponent(payload)));
     const url="https://api.github.com/repos/"+c.repo+"/contents/data.json",hd={Authorization:"Bearer "+c.token,Accept:"application/vnd.github+json"};
@@ -1025,6 +1087,8 @@ async function doLogin(){const u=$("lu").value.trim(),p=$("lp").value;
 $("loginBtn").onclick=doLogin;$("lp").addEventListener("keydown",e=>{if(e.key=="Enter")doLogin()});
 $("tabs").querySelectorAll("button").forEach(b=>b.onclick=()=>setScreen(b.dataset.s));
 $("healthChip").onclick=()=>setScreen("health");
+$("offAdd").onclick=()=>{const d=$("offDate").value;if(!d){$("offDate").focus();return}M.extraOff[d]=T($("offReason").value)||"Off day";$("offReason").value="";saveOff()};
+$("offAddAll").onclick=()=>{Object.entries(M.hol).forEach(([d,n])=>{if(dow(d)!=M.P.offDay)M.extraOff[d]=n});saveOff()};
 $("runBtn").onclick=runChecks;$("syncBtn").onclick=syncSetup;$("testBtn").onclick=syncTest;
 document.querySelectorAll("[data-tpl]").forEach(a=>a.onclick=()=>tpl(+a.dataset.tpl));
 ["fFrom","fTo","fTemp","gFleet"].forEach(id=>$(id).onchange=render);
