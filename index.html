@@ -326,6 +326,7 @@ function parseDate(v){
   return validYMD(y,mo,d)?ymd(y,mo,d):null}
 function num(v){if(v==null||v==="")return{v:0,blank:1};if(typeof v=="number")return{v};
   const s=T(v).replace(/,/g,"").replace(/egp|l\.?e\.?|ج\.?م\.?/gi,"").trim();if(!s)return{v:0,blank:1};const n=Number(s);return isNaN(n)?{v:NaN,bad:1}:{v:n}}
+const truckNos=v=>(T(v).replace(/[\u0660-\u0669\u06F0-\u06F9]/g,c=>String(c.charCodeAt(0)&15)).match(/\d{3,}/g)||[]);
 const addD=(d,n)=>{const x=new Date(d+"T12:00:00Z");x.setUTCDate(x.getUTCDate()+n);return x.toISOString().slice(0,10)};
 const dow=d=>new Date(d+"T12:00:00Z").getUTCDay();
 const monthOf=d=>d.slice(0,7);
@@ -374,6 +375,7 @@ function readData(wb,src,fname){
   let best=null;
   for(const sn of wb.SheetNames){const ws=wb.Sheets[sn];const rows=XLSX.utils.sheet_to_json(ws,{header:1,raw:true,defval:null,blankrows:true});
     const h=headerScan(rows,sch);if(!best||h.hit>best.h.hit)best={sn,rows,h,r0:ws["!ref"]?XLSX.utils.decode_range(ws["!ref"]).s.r:0}}
+  if(src=="S"&&best&&best.h.map.desc==null&&best.h.map.code!=null&&best.h.map.date!=null){best.h.map.desc=1;best.h.hit++}
   if(!best||best.h.hit<sch.req.length){
     const rows=best?best.rows:[];
     const other=Object.keys(SCHEMA).find(k=>k!=src&&sigScore(rows,SCHEMA[k].sig)==SCHEMA[k].sig.length);
@@ -385,8 +387,8 @@ function readData(wb,src,fname){
   const mp=h.map,recs=[],byShip={},sigs={};
   for(let i=h.i+1;i<rows.length;i++){const r=rows[i]||[];const g=f=>mp[f]==null?null:r[mp[f]];
     const keyVals=sch.req.map(g);if(keyVals.every(v=>v==null||T(v)===""))continue;
-    if(src=="S"){meta.rows++;const desc=T(g("desc"));const pl=(desc.match(/\d{3,}/g)||[]);
-      recs.push({id:"S:"+(r0+i+1),src,row:r0+i+1,dRaw:g("date"),d:parseDate(g("date")),desc,plate:pl[0]||"",equip:code(g("equip")),code:T(g("code"))});continue}
+    if(src=="S"){meta.rows++;const desc=T(g("desc"));const pl=truckNos(desc);
+      recs.push({id:"S:"+(r0+i+1),src,row:r0+i+1,dRaw:g("date"),d:parseDate(g("date")),desc,plate:pl[0]||"",plates:pl.length>1?pl:undefined,equip:code(g("equip")),code:T(g("code"))});continue}
     if(T(g("ship"))===""&&T(g("route"))===""){meta.skipped=(meta.skipped||0)+1;continue}
     meta.rows++;
     const rec={src,row:r0+i+1,ship:code(g("ship")),dRaw:g("date"),d:parseDate(g("date")),route:T(g("route")),spi:T(g("spi")).toUpperCase()};
@@ -492,7 +494,7 @@ function readMaster(wb,fname){
 function routeKey(r,tbl){const k=rnorm(r.route);const a=M.alias[k];return a&&a.tbl==tbl?a.to:k}
 function resolve(r){
   const x=r.x={};
-  if(r.src=="S"){x.truck=M.trucks[r.plate]||null;x.reason=M.stops[r.code]||null;x.cat=x.reason?x.reason.cat:"Unclassified";x.stop=x.reason?x.reason.stop:true;return}const sp=M.sppi[r.spi];x.sp=!!sp;x.temp=sp?sp.temp:null;x.dbl=sp?sp.dbl:false;
+  if(r.src=="S"){if(r.plates){const k=r.plates.filter(p=>M.trucks[p]);if(k.length==1)r.plate=k[0]}x.truck=M.trucks[r.plate]||null;x.reason=M.stops[r.code]||null;x.cat=x.reason?x.reason.cat:"Unclassified";x.stop=x.reason?x.reason.stop:true;return}const sp=M.sppi[r.spi];x.sp=!!sp;x.temp=sp?sp.temp:null;x.dbl=sp?sp.dbl:false;
   if(r.src=="O"){
     const groups=(r.car2.match(/\d{3,}/g)||[]);
     if(!groups.length){x.plate="";x.plateWhy="unreadable"}
