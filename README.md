@@ -7,14 +7,15 @@ All Excel parsing happens in the browser — shipment files are never uploaded t
 1. Upload `index.html` to the repo root (overwrite the old one) — Settings → Pages → Deploy from branch `main` /root if first time.
 2. URL: `https://<account>.github.io/<repo>/` — hard-refresh after updates (add `?v=N`).
 
-Login: `admin` / `Juhayna#2026`. The password also decrypts shared data (AES-256; key derived from it).
-To change it: SHA-256 hash of `user|password` → replace AUTH_HASH in index.html; re-RUN once to re-encrypt data.json.
+Sign-in: the password is checked by decrypting the shared `data.json` (AES-256-GCM, PBKDF2-SHA-256 600,000 iterations, random salt per save).
+No password or password hash is stored in this public repository — never write the password in any file here.
+To change it: sign in, then press **🔑 Change password** (needs the writer token on that browser). It re-encrypts `data.json` with the new password in one step.
 
 ## Daily use (planner)
 Open URL → login → choose files:
 1 · Owned raw (KPI tracker export — Shipment Update layout, headers row 4)
 2 · Spot/Rent raw (SAP extract — headers row 2)
-3 · Master data (this repo's `Juhayna-Dashboard-Master-Data.xlsx`, maintained by the team)
+3 · Master data (`Juhayna-Master-Data-v2.3.xlsx`, kept privately by the team — not in this public repo; "download current" exports the master that is in the shared data)
 → RUN. With a writer token configured (⚙ Sync), data commits encrypted to `data.json`; every device sees it with the last-update time.
 
 ## Master data maintenance

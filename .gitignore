@@ -1,0 +1,5 @@
+# confidential master data and extracts stay out of this public repo
+*.xlsx
+*.xls
+*.csv
+src/master-v2.json
