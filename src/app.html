@@ -180,6 +180,7 @@ tr.tot td{font-weight:700;background:var(--sunk)}
   <button class="btn pri" type="button" id="runBtn">▶ Run checks</button>
   <button class="btn sm" type="button" id="syncBtn">⚙ Sync</button>
   <button class="btn sm" type="button" id="testBtn">Test sync</button>
+  <button class="btn sm" type="button" id="pwBtn">🔑 Change password</button>
   <span class="chip i" id="syncBadge">sync: off</span>
   <span class="diag" id="syncDiag"></span>
 </div></div>
@@ -292,8 +293,8 @@ tr.tot td{font-weight:700;background:var(--sunk)}
 <script>
 "use strict";
 /* ================= constants & small utils ================= */
-const AUTH_HASH="f9ed8af6d7573309269abc03e148a91eb6a8c43733a66092045ad3d870ffd0cb";
-const SALT=new TextEncoder().encode("juhayna-fleet-2026");
+const SALT=new TextEncoder().encode("juhayna-fleet-2026"); // legacy fixed salt — only to read data.json written before v2.4
+const KDF_IT=600000;              // PBKDF2 iterations for new saves
 const $=id=>document.getElementById(id);
 const T=v=>v==null?"":String(v).trim();
 const code=v=>T(v).replace(/\.0+$/,"");
@@ -1039,18 +1040,20 @@ function exportMaster(){
   dlWB(wb,"Juhayna-Master-Data-v2-"+new Date().toISOString().slice(0,10)+".xlsx")}
 function tpl(n){const wb=XLSX.utils.book_new();
   if(n==1){const ws=sheet([["Shipments — Owned trucks (paste SAP export, any column order)"],[],[],["No","Shipment","Route","Shipment route","SpPI","Juhayna Driver No","Juhayna Driver Name","Car No.","Car No.2","PlDat.ChIn","Total"],
-    [1,"5512108","JUH26","Juh-Shabramant (Zayed)","D24","14266","<driver name>","2475","3178 ف س","2026-09-01",24]],[5,10,8,26,6,14,20,9,12,12,7]);XLSX.utils.book_append_sheet(wb,ws,"Shipment Update");dlWB(wb,"Template-1-Owned-Shipments.xlsx")}
+    [1,"5500001","JUH26","Juh-Shabramant (Zayed)","D24","10001","<driver name>","1000","1234 ف س","2026-09-01",24]],[5,10,8,26,6,14,20,9,12,12,7]);XLSX.utils.book_append_sheet(wb,ws,"Shipment Update");dlWB(wb,"Template-1-Owned-Shipments.xlsx")}
   if(n==2){const ws=sheet([["","Transportation cost"],["","PlDat.ChIn","Shipment","ShTy","Container ID","Driver Name","SvcPrvdr","Route name","SpPI","Over night Cost","Descrip.of Ship"],
-    ["","2026-09-01","5504346","TR","6741","<driver>","<vendor name>","Suez","J24","",""]],[3,12,10,6,12,14,22,14,6,12,14]);XLSX.utils.book_append_sheet(wb,ws,"Spot-Rent extract");dlWB(wb,"Template-2-SpotRent-Extract.xlsx")}
-  if(n==4){const ws=sheet([["Equipment","Equipment Descriptio","Code text","Vehicle Type desc","Date"],[2498,"3621 ف س","صيانة","نقل ثقيل","2026-09-01"]],[10,16,26,14,12]);XLSX.utils.book_append_sheet(wb,ws,"Sheet1");dlWB(wb,"Template-4-Truck-Stoppages.xlsx")}
+    ["","2026-09-01","5500002","TR","1000","<driver>","<vendor name>","Suez","J24","",""]],[3,12,10,6,12,14,22,14,6,12,14]);XLSX.utils.book_append_sheet(wb,ws,"Spot-Rent extract");dlWB(wb,"Template-2-SpotRent-Extract.xlsx")}
+  if(n==4){const ws=sheet([["Equipment","Equipment Descriptio","Code text","Vehicle Type desc","Date"],[1000,"1234 ف س","صيانة","نقل ثقيل","2026-09-01"]],[10,16,26,14,12]);XLSX.utils.book_append_sheet(wb,ws,"Sheet1");dlWB(wb,"Template-4-Truck-Stoppages.xlsx")}
   if(n==3)exportMaster()}
 
 /* ================= sync (unchanged behaviour, v2 payload) ================= */
-async function dKey(pw){const km=await crypto.subtle.importKey("raw",new TextEncoder().encode(pw),"PBKDF2",false,["deriveKey"]);
-  return crypto.subtle.deriveKey({name:"PBKDF2",salt:SALT,iterations:100000,hash:"SHA-256"},km,{name:"AES-GCM",length:256},false,["encrypt","decrypt"])}
+async function dKey(pw,salt=SALT,it=100000){const km=await crypto.subtle.importKey("raw",new TextEncoder().encode(pw),"PBKDF2",false,["deriveKey"]);
+  return crypto.subtle.deriveKey({name:"PBKDF2",salt,iterations:it,hash:"SHA-256"},km,{name:"AES-GCM",length:256},false,["encrypt","decrypt"])}
 const b64c=x=>{const u=new Uint8Array(x);let s="";for(let i=0;i<u.length;i+=32768)s+=String.fromCharCode.apply(null,u.subarray(i,i+32768));return btoa(s)};
-async function encJSON(o){const iv=crypto.getRandomValues(new Uint8Array(12));const k=await dKey(PW);const ct=await crypto.subtle.encrypt({name:"AES-GCM",iv},k,new TextEncoder().encode(JSON.stringify(o)));return{enc:1,iv:b64c(iv),ct:b64c(ct)}}
-async function decJSON(d){const u=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));const k=await dKey(PW);const pt=await crypto.subtle.decrypt({name:"AES-GCM",iv:u(d.iv)},k,u(d.ct));return JSON.parse(new TextDecoder().decode(pt))}
+async function encJSON(o,pw=PW){const iv=crypto.getRandomValues(new Uint8Array(12)),salt=crypto.getRandomValues(new Uint8Array(16));const k=await dKey(pw,salt,KDF_IT);
+  const ct=await crypto.subtle.encrypt({name:"AES-GCM",iv},k,new TextEncoder().encode(JSON.stringify(o)));return{enc:2,it:KDF_IT,salt:b64c(salt),iv:b64c(iv),ct:b64c(ct)}}
+async function decJSON(d,pw=PW){const u=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
+  const k=d.enc==2?await dKey(pw,u(d.salt),d.it):await dKey(pw);const pt=await crypto.subtle.decrypt({name:"AES-GCM",iv:u(d.iv)},k,u(d.ct));return JSON.parse(new TextDecoder().decode(pt))}
 const normRepo=s=>{s=(s||"").trim().replace(/^https?:\/\/(www\.)?github\.com\//i,"").replace(/\.git$/i,"");const p=s.split("/").filter(Boolean);return p.length>=2?p.slice(0,2).join("/"):s};
 function syncCfg(){try{const c=JSON.parse(localStorage.getItem("jh_sync")||"null");if(c)c.repo=normRepo(c.repo);return c}catch(e){return null}}
 function syncSetup(){const c=syncCfg()||{};let repo=prompt("GitHub repo — account/repo (NOT the token):",c.repo||"");if(repo===null)return;repo=normRepo(repo);
@@ -1065,6 +1068,28 @@ async function syncTest(){const o=$("syncDiag"),c=syncCfg();o.textContent="testi
   let m="repo: "+c.repo+" · token •••"+c.token.slice(-4)+" — ";
   try{const r=await fetch("https://api.github.com/repos/"+c.repo,{headers:{Authorization:"Bearer "+c.token}});
     m+=r.status==200?"✓ token OK":"✗ HTTP "+r.status+(r.status==401?" token invalid or expired":r.status==404?" token has no access to this repo":"")}catch(e){m+="✗ "+e.message}o.textContent=m}
+async function putDataJson(c,obj,msg){const b64=btoa(unescape(encodeURIComponent(JSON.stringify(obj))));
+  const url="https://api.github.com/repos/"+c.repo+"/contents/data.json",hd={Authorization:"Bearer "+c.token,Accept:"application/vnd.github+json"};
+  let sha;try{const g=await fetch(url,{headers:hd});if(g.ok)sha=(await g.json()).sha;else if(g.status!=404){const ls=await fetch("https://api.github.com/repos/"+c.repo+"/contents/",{headers:hd});if(ls.ok){const f=(await ls.json()).find(x=>x.name=="data.json");if(f)sha=f.sha}}}catch(e){}
+  return fetch(url,{method:"PUT",headers:hd,body:JSON.stringify({message:msg,content:b64,...(sha?{sha}:{})})})}
+async function fetchShared(){const c=syncCfg();const url=c&&c.repo?"https://raw.githubusercontent.com/"+c.repo+"/main/data.json":"data.json";
+  try{const r=await fetch(url+"?t="+Date.now(),{cache:"no-store"});return r.ok?await r.json():null}catch(e){return null}}
+async function changePw(){const o=$("syncDiag"),c=syncCfg();
+  if(!PW){alert("Sign in first. / سجّل الدخول أولًا.");return}
+  if(!c||!c.token){alert("Changing the password re-encrypts the shared data, so it needs the writer token on this browser (⚙ Sync). / تغيير كلمة المرور يحتاج توكن الكتابة على هذا المتصفح (⚙ مزامنة).");return}
+  const cur=prompt("Current password / كلمة المرور الحالية:");if(cur===null)return;
+  if(cur!==PW){alert("Current password is wrong. / كلمة المرور الحالية غير صحيحة.");return}
+  const n1=prompt("New password — at least 14 characters, e.g. 4 random words / كلمة المرور الجديدة — 14 حرفًا على الأقل، مثلًا 4 كلمات عشوائية:");if(n1===null)return;
+  if(n1.length<14){alert("Too short: use at least 14 characters. / قصيرة جدًا: 14 حرفًا على الأقل.");return}
+  if(prompt("Repeat the new password / أعد كتابة كلمة المرور الجديدة:")!==n1){alert("The two passwords do not match. / كلمتا المرور غير متطابقتين.");return}
+  o.textContent="re-encrypting the shared data with the new password…";
+  try{const d=await fetchShared();let plain=null;
+    if(d&&d.enc)plain=await decJSON(d,cur);else if(d)plain=d;
+    if(plain){const res=await putDataJson(c,await encJSON(plain,n1),"re-encrypt data (password change) "+new Date().toISOString());
+      if(!res.ok){o.textContent="✗ Password NOT changed: GitHub refused the update (HTTP "+res.status+"). Nothing was changed.";return}}
+    PW=n1;try{sessionStorage.setItem("jh_pw",n1)}catch(e){}
+    o.textContent="✓ Password changed"+(plain?" — shared data re-encrypted. Everyone signs in with the new password now.":" (no shared data yet).")}
+  catch(e){o.textContent="✗ Password NOT changed: "+e.message}}
 async function pushData(){const o=$("syncDiag");
   if(!H||!H.ok){o.textContent="Not shared: blocking issues are open.";return}
   try{const c=syncCfg();if(!c||!c.token){o.textContent="(not shared — no writer token; data is visible only in this browser)";return}
@@ -1072,29 +1097,32 @@ async function pushData(){const o=$("syncDiag");
     const strip=r=>{const {x,L,LR,ok,reN,reFree,dup,...rest}=r;return rest};
     const mClean=JSON.parse(JSON.stringify(M,(k,v)=>k[0]=="_"?undefined:v));
     const raw={v:2,O:DS.O.map(strip),V:DS.V.map(strip),S:(DS.S||[]).map(strip),files:DS.files,legacy:DS.legacy,master:mClean,masterIssues:M._iss||[],excl:EXCL,health:{blockers:H.blockers,warns:H.warns},savedAt:new Date().toISOString()};
-    const payload=JSON.stringify(PW?await encJSON(raw):raw),b64=btoa(unescape(encodeURIComponent(payload)));
-    const url="https://api.github.com/repos/"+c.repo+"/contents/data.json",hd={Authorization:"Bearer "+c.token,Accept:"application/vnd.github+json"};
-    let sha;try{const g=await fetch(url,{headers:hd});if(g.ok)sha=(await g.json()).sha;else if(g.status!=404){const ls=await fetch("https://api.github.com/repos/"+c.repo+"/contents/",{headers:hd});if(ls.ok){const f=(await ls.json()).find(x=>x.name=="data.json");if(f)sha=f.sha}}}catch(e){}
-    const res=await fetch(url,{method:"PUT",headers:hd,body:JSON.stringify({message:"data update "+new Date().toISOString(),content:b64,...(sha?{sha}:{})})});
+    if(!PW){o.textContent="✗ Not shared: sign in first (the password encrypts the shared data).";return}
+    const res=await putDataJson(c,await encJSON(raw),"data update "+new Date().toISOString());
     if(res.ok){DIRTY=false;$("statusBadge").textContent="shared "+new Date().toLocaleString();$("statusBadge").className="chip ok";o.textContent="✓ shared at "+new Date().toLocaleTimeString();render()}
     else{let msg="";try{msg=(await res.json()).message||""}catch(e){}o.textContent="✗ share failed HTTP "+res.status+(msg?" — "+msg:"")+(res.status==401?" → token invalid or expired: redo ⚙ Sync":res.status==404?" → token has no access to "+c.repo:"")}
   }catch(e){o.textContent="✗ share failed: "+e.message}}
-async function loadRemote(){const c=syncCfg();updSync();
-  const url=c&&c.repo?"https://raw.githubusercontent.com/"+c.repo+"/main/data.json":"data.json";
-  try{const r=await fetch(url+"?t="+Date.now(),{cache:"no-store"});if(!r.ok)return;let d=await r.json();
+async function loadRemote(){updSync();
+  try{let d=await fetchShared();if(!d)return;
     if(d.enc){if(!PW)return;try{d=await decJSON(d)}catch(e){return}}
     if(!(d.O||d.owned))return;loadSnapshot(d,"shared "+new Date(d.savedAt).toLocaleString())}catch(e){}}
-async function doLogin(){const u=$("lu").value.trim(),p=$("lp").value;
-  const buf=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(u+"|"+p));
-  const hex=[...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,"0")).join("");
-  if(hex===AUTH_HASH){PW=p;try{sessionStorage.setItem("jh_auth","1");sessionStorage.setItem("jh_pw",p)}catch(e){}$("loginOv").hidden=true;loadRemote()}
-  else $("lerr").textContent="Invalid credentials / بيانات غير صحيحة"}
+// Sign-in: the password is right when it decrypts the shared data. No password hash is stored in this public page.
+async function doLogin(){const p=$("lp").value,e=$("lerr");
+  if(!p){e.textContent="Enter the password / أدخل كلمة المرور";return}
+  e.textContent="Checking… / جارٍ التحقق…";$("loginBtn").disabled=true;
+  try{let d=await fetchShared();
+    if(d&&d.enc){try{d=await decJSON(d,p)}catch(x){e.textContent="Invalid credentials / بيانات غير صحيحة";return}}
+    PW=p;try{sessionStorage.setItem("jh_auth","1");sessionStorage.setItem("jh_pw",p)}catch(x){}
+    $("loginOv").hidden=true;e.textContent="";
+    if(d&&(d.O||d.owned))loadSnapshot(d,"shared "+new Date(d.savedAt).toLocaleString());
+    else $("syncDiag").textContent="No shared data found — working locally. The password you entered will encrypt what you share."}
+  finally{$("loginBtn").disabled=false}}
 
 /* ================= language (English / Arabic) ================= */
 const AR={"Data health":"صحة البيانات","Cost":"التكلفة","Cost explorer":"مستكشف التكلفة","Owned fleet":"الأسطول المملوك","Vendors":"الموردون","Working days":"أيام العمل",
 "Owned · Rented · Spot — validated against master data":"مملوك · إيجار · فوري — مُراجع على البيانات الرئيسية","JUHAYNA FLEET CONTROL TOWER":"برج مراقبة أسطول جهينة",
 "1 · Owned shipments":"1 · شحنات السيارات المملوكة","2 · Spot/rent/MR extracts (one or more)":"2 · مستخرجات الفوري/الإيجار (ملف أو أكثر)","3 · Master data v2":"3 · البيانات الرئيسية v2","4 · Truck stoppages":"4 · توقف السيارات",
-"template":"نموذج","download current":"تنزيل الحالي","▶ Run checks":"▶ تشغيل الفحص","⚙ Sync":"⚙ مزامنة","Test sync":"اختبار المزامنة","sync: off":"المزامنة: متوقفة",
+"template":"نموذج","download current":"تنزيل الحالي","▶ Run checks":"▶ تشغيل الفحص","⚙ Sync":"⚙ مزامنة","Test sync":"اختبار المزامنة","🔑 Change password":"🔑 تغيير كلمة المرور","sync: off":"المزامنة: متوقفة",
 "From":"من","To":"إلى","Preset…":"فترة جاهزة…","Latest month":"آخر شهر","Last 7 days":"آخر 7 أيام","All data":"كل البيانات","Temp":"التبريد","All":"الكل","Dry":"جاف","Chilled":"مبرد",
 "Fleet":"الأسطول","Owned":"مملوك","Rented (MR)":"إيجار شهري (MR)","Spot":"فوري","Returns (RE)":"مرتجعات (RE)","✕ Reset":"✕ إعادة ضبط","search…":"بحث…",
 "Data clean":"البيانات سليمة","Ready, with warnings":"جاهز مع تحذيرات","Master data v2 needed":"مطلوب ملف البيانات الرئيسية v2","⬇ Fix list (Excel)":"⬇ قائمة التصحيح (Excel)","Calculate & share":"احسب وشارك","Open cost":"افتح التكلفة",
@@ -1164,7 +1192,7 @@ $("healthChip").onclick=()=>setScreen("health");
 $("langBtn").onclick=()=>setLang(LANG=="ar"?"en":"ar");
 $("offAdd").onclick=()=>{const d=$("offDate").value;if(!d){$("offDate").focus();return}M.extraOff[d]=T($("offReason").value)||"Off day";$("offReason").value="";saveOff()};
 $("offAddAll").onclick=()=>{Object.entries(M.hol).forEach(([d,n])=>{if(dow(d)!=M.P.offDay)M.extraOff[d]=n});saveOff()};
-$("runBtn").onclick=runChecks;$("syncBtn").onclick=syncSetup;$("testBtn").onclick=syncTest;
+$("runBtn").onclick=runChecks;$("syncBtn").onclick=syncSetup;$("testBtn").onclick=syncTest;$("pwBtn").onclick=changePw;
 document.querySelectorAll("[data-tpl]").forEach(a=>a.onclick=()=>tpl(+a.dataset.tpl));
 ["fFrom","fTo","fTemp","gFleet"].forEach(id=>$(id).onchange=render);
 $("gPreset").onchange=e=>{preset(e.target.value);e.target.value=""};
